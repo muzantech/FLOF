@@ -115,7 +115,7 @@ function ConsolePanel({ identifier, serverUuid }: { identifier: string; serverUu
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [command, setCommand] = useState("");
-  const [wsRef] = useState<{ ws: WebSocket | null }>({ ws: null });
+  const wsRef = useRef<WebSocket | null>(null);
   const consoleEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
@@ -123,64 +123,84 @@ function ConsolePanel({ identifier, serverUuid }: { identifier: string; serverUu
     setLines(prev => [...prev.slice(-500), { text, ts: Date.now(), type }]);
   }
 
-  function scrollToBottom() {
+  useEffect(() => {
     consoleEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [lines]);
+
+  function getWsUrl() {
+    // Build WebSocket URL to our backend proxy
+    const token = localStorage.getItem("flyhost_token") || "";
+    const isHttps = window.location.protocol === "https:";
+    const proto = isHttps ? "wss:" : "ws:";
+    const host = window.location.host;
+    return `${proto}//${host}/api/ws/servers/${identifier}?token=${encodeURIComponent(token)}`;
   }
 
-  useEffect(() => { scrollToBottom(); }, [lines]);
-
-  async function connect() {
-    if (wsRef.ws) { wsRef.ws.close(); wsRef.ws = null; }
+  function connect() {
+    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
     setConnecting(true);
     addLine("Connexion au serveur...", "system");
 
     try {
-      const res = await fetch(`/api/servers/${identifier}/console`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erreur connexion console");
-
-      const { socket, token } = data.data;
-
-      const ws = new WebSocket(socket);
-      wsRef.ws = ws;
+      const wsUrl = getWsUrl();
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
       ws.onopen = () => {
-        ws.send(JSON.stringify({ event: "auth", args: [token] }));
+        // Backend proxy handles auth automatically
+        addLine("WebSocket ouvert, authentification...", "system");
       };
 
       ws.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data);
+
+          if (msg.event === "flyhost_error") {
+            addLine(`Erreur: ${msg.args[0]}`, "error");
+            setConnected(false);
+            setConnecting(false);
+            return;
+          }
+          if (msg.event === "flyhost_disconnected") {
+            addLine("Connexion Pterodactyl fermée", "system");
+            setConnected(false);
+            setConnecting(false);
+            return;
+          }
+
           if (msg.event === "auth success") {
             setConnected(true);
             setConnecting(false);
             addLine("✓ Console connectée", "system");
-            // Request logs
             ws.send(JSON.stringify({ event: "send logs", args: [null] }));
           } else if (msg.event === "console output") {
-            addLine(msg.args[0] || "", "output");
+            // Strip ANSI codes
+            const clean = (msg.args[0] || "").replace(/\x1b\[[0-9;]*m/g, "");
+            if (clean.trim()) addLine(clean, "output");
           } else if (msg.event === "status") {
-            addLine(`[État] Serveur: ${msg.args[0]}`, "system");
+            addLine(`● Serveur: ${msg.args[0]}`, "system");
+          } else if (msg.event === "stats") {
+            // Ignore stats events (too noisy)
           } else if (msg.event === "daemon error") {
-            addLine(`[Erreur] ${msg.args[0]}`, "error");
-          } else if (msg.event === "token expiring") {
-            addLine("[Système] Token expirant, reconnexion...", "system");
-            reconnect();
+            addLine(`[Daemon] ${msg.args[0]}`, "error");
+          } else if (msg.event === "install output") {
+            addLine(`[Install] ${msg.args[0]}`, "output");
           }
         } catch {}
       };
 
       ws.onerror = () => {
-        addLine("Erreur WebSocket — le panel est peut-être hors ligne", "error");
+        addLine("Erreur WebSocket — connexion interrompue", "error");
         setConnected(false);
         setConnecting(false);
       };
 
-      ws.onclose = () => {
+      ws.onclose = (e) => {
         setConnected(false);
         setConnecting(false);
-        if (wsRef.ws === ws) {
-          addLine("Connexion fermée", "system");
+        if (wsRef.current === ws) {
+          addLine(`Connexion fermée (code: ${e.code})`, "system");
+          wsRef.current = null;
         }
       };
     } catch (err: any) {
@@ -189,32 +209,22 @@ function ConsolePanel({ identifier, serverUuid }: { identifier: string; serverUu
     }
   }
 
-  async function reconnect() {
-    try {
-      const res = await fetch(`/api/servers/${identifier}/console`);
-      const data = await res.json();
-      if (res.ok && wsRef.ws?.readyState === WebSocket.OPEN) {
-        wsRef.ws.send(JSON.stringify({ event: "auth", args: [data.data.token] }));
-      }
-    } catch {}
-  }
-
   function disconnect() {
-    wsRef.ws?.close();
-    wsRef.ws = null;
+    wsRef.current?.close();
+    wsRef.current = null;
     setConnected(false);
-    addLine("Déconnecté", "system");
+    addLine("Déconnecté manuellement", "system");
   }
 
   function sendCommand() {
-    if (!command.trim() || !wsRef.ws || wsRef.ws.readyState !== WebSocket.OPEN) return;
-    wsRef.ws.send(JSON.stringify({ event: "send command", args: [command] }));
+    if (!command.trim() || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    wsRef.current.send(JSON.stringify({ event: "send command", args: [command] }));
     addLine(`> ${command}`, "system");
     setCommand("");
   }
 
   useEffect(() => {
-    return () => { wsRef.ws?.close(); };
+    return () => { wsRef.current?.close(); };
   }, []);
 
   return (
