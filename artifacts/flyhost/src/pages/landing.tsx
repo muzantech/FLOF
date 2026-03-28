@@ -1,6 +1,6 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Triangle, Zap, Shield, Globe, Terminal, ArrowRight } from "lucide-react";
+import { Triangle, Zap, Shield, Globe, Terminal, ArrowRight, Coins, Gift, Activity } from "lucide-react";
 import { motion } from "framer-motion";
 
 export default function LandingPage() {
@@ -56,9 +56,11 @@ export default function LandingPage() {
                 Start Deploying <ArrowRight className="ml-2 w-5 h-5" />
               </Button>
             </Link>
-            <Button size="lg" variant="outline" className="rounded-full h-14 px-8 text-base border-border bg-black/50 hover:bg-white/5 backdrop-blur-sm w-full sm:w-auto">
-              Read Documentation
-            </Button>
+            <Link href="/docs">
+              <Button size="lg" variant="outline" className="rounded-full h-14 px-8 text-base border-border bg-black/50 hover:bg-white/5 backdrop-blur-sm w-full sm:w-auto">
+                Lire la Documentation
+              </Button>
+            </Link>
           </div>
         </motion.div>
       </main>

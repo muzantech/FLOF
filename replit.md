@@ -39,7 +39,8 @@ FlyHost is a full-stack hosting platform (Vercel clone) with:
 
 ## Frontend Pages
 
-All new pages use `FlyLayout` (dark theme: #09090B, yellow accent: #FACC15, hamburger drawer nav)
+All pages use unified `AppLayout` (dark theme: #09090B, yellow accent: #FACC15, hamburger drawer nav).
+`FlyLayout` is now a bridge component that delegates to `AppLayout` for consistency.
 
 - `/` — Landing
 - `/login` `/register` — Auth
@@ -94,9 +95,10 @@ artifacts-monorepo/
 ## API Routes
 
 ### Auth
-- `POST /api/auth/register` — Register (gives +10 coins)
-- `POST /api/auth/login` — Login
-- `GET/PATCH /api/auth/me` — Current user
+- `POST /api/auth/register` — Register (gives +10 coins, generates referral code, redirects to /onboarding)
+- `POST /api/auth/login` — Login (returns coins, role, referralCode, onboardingDone)
+- `POST /api/auth/daily-login` — Claim daily login +5 coins (once per day, triggered automatically on login)
+- `GET/PATCH /api/auth/me` — Current user (returns full profile including coins, role, etc.)
 - `POST /api/complete-onboarding` — Mark onboarding done
 
 ### Projects & Deployments
