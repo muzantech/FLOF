@@ -268,7 +268,7 @@ export default function DeployPage() {
                 <div style={{ textAlign: "center", padding: "60px 0" }}>
                   <div style={{ fontSize: "48px", marginBottom: "12px" }}>🖥️</div>
                   <p style={{ color: Muted, marginBottom: "16px" }}>Aucun serveur disponible</p>
-                  <button onClick={() => setLocation("/servers/new")} style={{ padding: "10px 20px", background: Y, border: "none", color: Bg, borderRadius: "8px", cursor: "pointer", fontFamily: "inherit", fontWeight: 700 }}>
+                  <button onClick={() => setLocation("/servers")} style={{ padding: "10px 20px", background: Y, border: "none", color: Bg, borderRadius: "8px", cursor: "pointer", fontFamily: "inherit", fontWeight: 700 }}>
                     + Créer un serveur
                   </button>
                 </div>

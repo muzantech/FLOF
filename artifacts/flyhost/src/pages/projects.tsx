@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "wouter";
+import { useLocation } from "wouter";
 import { formatDistanceToNow } from "date-fns";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -46,6 +46,7 @@ type CreateProjectFormValues = z.infer<typeof createProjectSchema>;
 
 export default function ProjectsPage() {
   const [search, setSearch] = useState("");
+  const [, navigate] = useLocation();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const { data: projects, isLoading } = useListProjects();
   const { mutateAsync: createProject, isPending } = useCreateProject();
@@ -180,8 +181,11 @@ export default function ProjectsPage() {
         ) : filteredProjects.length > 0 ? (
           <div className="grid grid-cols-1 gap-4">
             {filteredProjects.map((project) => (
-              <Link key={project.id} href={`/projects/${project.id}`}>
-                <div className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-6 rounded-xl border border-border bg-card/40 hover:bg-card hover:border-white/10 transition-all cursor-pointer">
+              <div
+                key={project.id}
+                onClick={() => navigate(`/projects/${project.id}`)}
+                className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-6 rounded-xl border border-border bg-card/40 hover:bg-card hover:border-white/10 transition-all cursor-pointer"
+              >
                   <div className="flex items-center gap-4 mb-4 sm:mb-0">
                     <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center border border-border text-lg font-bold text-white shrink-0">
                       {project.name.charAt(0).toUpperCase()}
@@ -234,8 +238,7 @@ export default function ProjectsPage() {
                       </a>
                     )}
                   </div>
-                </div>
-              </Link>
+              </div>
             ))}
           </div>
         ) : (
