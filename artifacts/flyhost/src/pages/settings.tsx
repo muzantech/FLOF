@@ -67,15 +67,15 @@ export default function SettingsPage() {
                   <FormField control={form.control} name="name" render={({field}) => (
                     <FormItem><FormLabel>Full Name</FormLabel><FormControl><Input {...field} className="bg-secondary/50" /></FormControl><FormMessage/></FormItem>
                   )} />
-                  <FormItem>
-                    <FormLabel>Username</FormLabel>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium leading-none">Username</label>
                     <Input value={user?.username} disabled className="bg-secondary/20 text-muted-foreground cursor-not-allowed" />
-                  </FormItem>
-                  <FormItem className="sm:col-span-2">
-                    <FormLabel>Email Address</FormLabel>
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <label className="text-sm font-medium leading-none">Email Address</label>
                     <Input value={user?.email} disabled className="bg-secondary/20 text-muted-foreground cursor-not-allowed" />
                     <p className="text-xs text-muted-foreground mt-2">To change your email, please contact support.</p>
-                  </FormItem>
+                  </div>
                 </div>
 
                 <div className="flex justify-end pt-4 border-t border-border/50">
