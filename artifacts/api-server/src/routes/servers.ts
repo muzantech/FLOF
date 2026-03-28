@@ -62,6 +62,25 @@ function getCategoryForType(type: string): string {
   return "other";
 }
 
+// GET /api/servers/:identifier/quick-stats — live Pterodactyl resource usage for deploy page
+router.get("/servers/:identifier/quick-stats", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const data = await getServerResourceUsage(req.params.identifier);
+    const attr = data.attributes;
+    res.json({
+      state: attr.current_state,
+      cpu: attr.resources?.cpu_absolute ?? 0,
+      ram: attr.resources?.memory_bytes ?? 0,
+      ramLimit: attr.resources?.memory_limit_bytes ?? 0,
+      disk: attr.resources?.disk_bytes ?? 0,
+      diskLimit: attr.resources?.disk_limit_bytes ?? 0,
+      uptime: attr.resources?.uptime ?? 0,
+    });
+  } catch {
+    res.json({ state: "offline", cpu: 0, ram: 0, ramLimit: 0, disk: 0, diskLimit: 0, uptime: 0 });
+  }
+});
+
 // GET /api/servers — list all servers (admin) or filtered by user ptero ID
 router.get("/servers", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   try {
