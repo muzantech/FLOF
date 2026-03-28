@@ -251,4 +251,79 @@ export async function getServerConsoleToken(identifier: string) {
   return pteroClientRequest(`/servers/${identifier}/websocket`);
 }
 
+// ——— File Manager ———
+
+export async function listServerFiles(identifier: string, directory = "/") {
+  return pteroClientRequest(`/servers/${identifier}/files/list?directory=${encodeURIComponent(directory)}`);
+}
+
+export async function getFileContents(identifier: string, filePath: string) {
+  const res = await fetch(`${PANEL_URL}/api/client/servers/${identifier}/files/contents?file=${encodeURIComponent(filePath)}`, {
+    headers: {
+      "Authorization": `Bearer ${CLIENT_KEY}`,
+      "Accept": "text/plain",
+    },
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`File read error: ${res.status} ${t.substring(0, 100)}`);
+  }
+  return res.text();
+}
+
+export async function writeFileContents(identifier: string, filePath: string, content: string) {
+  const res = await fetch(`${PANEL_URL}/api/client/servers/${identifier}/files/write?file=${encodeURIComponent(filePath)}`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${CLIENT_KEY}`,
+      "Content-Type": "text/plain",
+    },
+    body: content,
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`File write error: ${res.status} ${t.substring(0, 100)}`);
+  }
+  return true;
+}
+
+export async function createServerFolder(identifier: string, directory: string, name: string) {
+  return pteroClientRequest(`/servers/${identifier}/files/create-folder`, "POST", { root: directory, name });
+}
+
+export async function renameServerFile(identifier: string, root: string, from: string, to: string) {
+  return pteroClientRequest(`/servers/${identifier}/files/rename`, "PUT", {
+    root,
+    files: [{ from, to }],
+  });
+}
+
+export async function deleteServerFiles(identifier: string, root: string, files: string[]) {
+  return pteroClientRequest(`/servers/${identifier}/files/delete`, "POST", { root, files });
+}
+
+export async function compressServerFiles(identifier: string, root: string, files: string[]) {
+  return pteroClientRequest(`/servers/${identifier}/files/compress`, "POST", { root, files });
+}
+
+export async function decompressServerFile(identifier: string, root: string, file: string) {
+  return pteroClientRequest(`/servers/${identifier}/files/decompress`, "POST", { root, file });
+}
+
+// ——— Server resource usage ———
+
+export async function getServerStats(identifier: string) {
+  return pteroClientRequest(`/servers/${identifier}/resources`);
+}
+
+// ——— Client API key test ———
+export async function testClientKey() {
+  try {
+    const data = await pteroClientRequest("/");
+    return { ok: true, serverCount: data.data?.length || 0 };
+  } catch (e: any) {
+    return { ok: false, error: e.message };
+  }
+}
+
 export { NODE_ID, LOCATION_ID };

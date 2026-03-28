@@ -14,6 +14,15 @@ import {
   getPteroServer,
   sendPowerAction,
   getServerResourceUsage,
+  getServerConsoleToken,
+  listServerFiles,
+  getFileContents,
+  writeFileContents,
+  createServerFolder,
+  renameServerFile,
+  deleteServerFiles,
+  getServerStats,
+  testClientKey,
 } from "../pterodactyl";
 
 const router: IRouter = Router();
@@ -234,9 +243,14 @@ router.get("/ptero/test", requireAuth, async (req: AuthRequest, res): Promise<vo
     if (!user || (user.role !== "admin" && user.role !== "superadmin")) {
       res.status(403).json({ error: "Admin requis" }); return;
     }
-    const data = await listPteroServers();
+    const [data, clientTest] = await Promise.all([
+      listPteroServers(),
+      testClientKey(),
+    ]);
     res.json({
       connected: true,
+      clientConnected: clientTest.ok,
+      clientError: clientTest.ok ? null : clientTest.error,
       panelUrl: process.env.PTERODACTYL_URL,
       totalServers: data.meta?.pagination?.total || 0,
       nodeId: 1,
@@ -244,6 +258,98 @@ router.get("/ptero/test", requireAuth, async (req: AuthRequest, res): Promise<vo
     });
   } catch (err: any) {
     res.status(500).json({ connected: false, error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════
+// SERVER DETAIL — Console, Files, Stats
+// ══════════════════════════════════════════
+
+// GET /api/servers/:identifier/console — get WebSocket token for console
+router.get("/servers/:identifier/console", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const data = await getServerConsoleToken(req.params.identifier);
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/servers/:identifier/stats — get resource usage
+router.get("/servers/:identifier/stats", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const data = await getServerStats(req.params.identifier);
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/servers/:identifier/files — list files in directory
+router.get("/servers/:identifier/files", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const directory = (req.query.directory as string) || "/";
+    const data = await listServerFiles(req.params.identifier, directory);
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/servers/:identifier/files/contents — get file content
+router.get("/servers/:identifier/files/contents", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const file = req.query.file as string;
+    if (!file) { res.status(400).json({ error: "file parameter required" }); return; }
+    const content = await getFileContents(req.params.identifier, file);
+    res.json({ content, file });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/servers/:identifier/files/write — write file content
+router.post("/servers/:identifier/files/write", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const { file, content } = req.body;
+    if (!file || content === undefined) { res.status(400).json({ error: "file and content required" }); return; }
+    await writeFileContents(req.params.identifier, file, content);
+    res.json({ success: true, file });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/servers/:identifier/files/folder — create folder
+router.post("/servers/:identifier/files/folder", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const { directory, name } = req.body;
+    await createServerFolder(req.params.identifier, directory || "/", name);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/servers/:identifier/files/rename — rename a file
+router.put("/servers/:identifier/files/rename", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const { root, from, to } = req.body;
+    await renameServerFile(req.params.identifier, root || "/", from, to);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/servers/:identifier/files — delete files
+router.delete("/servers/:identifier/files", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const { root, files } = req.body;
+    await deleteServerFiles(req.params.identifier, root || "/", files);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 

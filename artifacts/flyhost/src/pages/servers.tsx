@@ -12,6 +12,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { Link } from "wouter";
 import {
   Server,
   Plus,
@@ -32,6 +33,7 @@ import {
   ExternalLink,
   ChevronRight,
   Info,
+  Settings,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -162,6 +164,13 @@ function ServerRow({
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Manage button — main CTA */}
+          <Link href={`/servers/${server.identifier}`}>
+            <Button size="sm" className="h-8 gap-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 hover:border-yellow-400/30 hover:text-yellow-400 font-medium">
+              <Terminal className="w-3.5 h-3.5" /> Gérer
+            </Button>
+          </Link>
+
           {!server.suspended && (
             <>
               <Button
@@ -193,15 +202,6 @@ function ServerRow({
               </Button>
             </>
           )}
-          <a
-            href={`https://panel.lionelmelo.qzz.io/server/${server.identifier}`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-zinc-400 hover:text-white" title="Ouvrir dans le panel">
-              <ExternalLink className="w-3.5 h-3.5" />
-            </Button>
-          </a>
           <Button
             size="sm"
             variant="ghost"
