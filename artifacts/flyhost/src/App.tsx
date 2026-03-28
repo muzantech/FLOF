@@ -27,6 +27,7 @@ import HistoryPage from "@/pages/history";
 import StatusPage from "@/pages/status";
 import DocsPage from "@/pages/docs";
 import AdminPage from "@/pages/admin";
+import ServersPage from "@/pages/servers";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -93,6 +94,7 @@ function Router() {
       <Route path="/invoices"><ProtectedRoute component={InvoicesPage} /></Route>
       <Route path="/history"><ProtectedRoute component={HistoryPage} /></Route>
       <Route path="/admin"><ProtectedRoute component={AdminPage} /></Route>
+      <Route path="/servers"><ProtectedRoute component={ServersPage} /></Route>
       
       {/* Public Routes */}
       <Route path="/status" component={StatusPage} />

@@ -30,7 +30,8 @@ FlyHost is a full-stack hosting platform (Vercel clone) with:
 - **Coins economy** (10 on signup, daily login, referrals, subscription bonuses)
 - **Subscription plans** (Starter/Pro/Business — paid in coins)
 - **Referral program** (+50 coins per referral, +25 for referred user)
-- **Admin/Reseller panel** with pack purchasing
+- **Admin/Reseller panel** with pack purchasing, Pterodactyl server admin view
+- **Pterodactyl Panel integration** (real servers: create, list, power actions, suspend/delete)
 - **Status page** with service uptime/incidents
 - **Documentation** with sidebar navigation
 - **Onboarding wizard** (3-step)
@@ -55,7 +56,8 @@ All pages use unified `AppLayout` (dark theme: #09090B, yellow accent: #FACC15, 
 - `/referral` — Share code, apply code, list filleuls
 - `/invoices` — Transaction receipts
 - `/history` — Timeline of all coin movements
-- `/admin` — Reseller dashboard (packs, clients, stats)
+- `/servers` — Pterodactyl server management (list, create, power actions, delete)
+- `/admin` — Admin panel (Pterodactyl server management + reseller dashboard + stats)
 - `/status` — Service uptime monitoring (public)
 - `/docs` — Documentation with sidebar (public)
 

@@ -9,6 +9,7 @@ import statsRouter from "./stats";
 import userProfileRouter from "./user-profile";
 import subscriptionsRouter from "./subscriptions";
 import referralsRouter from "./referrals";
+import serversRouter from "./servers";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use(statsRouter);
 router.use(userProfileRouter);
 router.use(subscriptionsRouter);
 router.use(referralsRouter);
+router.use(serversRouter);
 
 export default router;

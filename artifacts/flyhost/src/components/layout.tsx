@@ -22,6 +22,7 @@ import {
   ChevronRight,
   X,
   Bell,
+  Server,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,6 +39,7 @@ const mainNavItems = [
   { href: "/projects", label: "Projets", icon: FolderGit2 },
   { href: "/teams", label: "Équipes", icon: Users },
   { href: "/deploy", label: "Déployer", icon: Rocket },
+  { href: "/servers", label: "Serveurs", icon: Server },
 ];
 
 const accountNavItems = [
