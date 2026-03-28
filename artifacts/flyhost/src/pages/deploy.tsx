@@ -104,7 +104,7 @@ export default function DeployPage() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [phase, setPhase] = useState<"idle" | "building" | "done" | "failed">("idle");
   const logsEndRef = useRef<HTMLDivElement>(null);
-  const sseRef = useRef<EventSource | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [toast, setToast] = useState<{ msg: string; type: string } | null>(null);
   function showToast(msg: string, type = "info") {
@@ -140,21 +140,38 @@ export default function DeployPage() {
 
   useEffect(() => { logsEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [logs]);
 
+  // Poll deploy logs every 2s instead of SSE
   useEffect(() => {
-    if (!deploymentId || !selectedServer) return;
-    sseRef.current?.close();
-    const token = localStorage.getItem("flyhost_token") || "";
-    const url = `/api/servers/${selectedServer.identifier}/deploy/sse?deploymentId=${deploymentId}&token=${encodeURIComponent(token)}`;
-    const es = new EventSource(url);
-    sseRef.current = es;
-    es.onmessage = (e) => {
-      const data: LogEntry = JSON.parse(e.data);
-      if (data.message === "__DEPLOY_COMPLETE__") { setPhase("done"); es.close(); return; }
-      if (data.message === "__DEPLOY_FAILED__") { setPhase("failed"); es.close(); return; }
-      setLogs(prev => [...prev, data]);
-    };
-    return () => es.close();
-  }, [deploymentId, selectedServer]);
+    if (!deploymentId) return;
+    if (pollRef.current) clearInterval(pollRef.current);
+
+    async function poll() {
+      try {
+        const [logsRes, statusRes] = await Promise.all([
+          fetch(`/api/deploy/${deploymentId}/logs`),
+          fetch(`/api/deploy/${deploymentId}`),
+        ]);
+        if (logsRes.ok) {
+          const data = await logsRes.json();
+          setLogs(data);
+        }
+        if (statusRes.ok) {
+          const dep = await statusRes.json();
+          if (dep.status === "deployed") {
+            setPhase("done");
+            if (pollRef.current) clearInterval(pollRef.current);
+          } else if (dep.status === "failed") {
+            setPhase("failed");
+            if (pollRef.current) clearInterval(pollRef.current);
+          }
+        }
+      } catch { /* network errors are non-fatal */ }
+    }
+
+    poll();
+    pollRef.current = setInterval(poll, 2000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [deploymentId]);
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault(); setDragging(false);
