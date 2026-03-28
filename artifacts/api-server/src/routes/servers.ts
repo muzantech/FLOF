@@ -122,12 +122,13 @@ router.post("/servers", requireAuth, async (req: AuthRequest, res): Promise<void
     if (existingPteroUser) {
       pteroUserId = existingPteroUser.attributes.id;
     } else {
-      // Create ptero user
-      const nameParts = user.name.split(" ");
+      // Create ptero user — username must be unique, use fh<userId>
+      const nameParts = (user.name || user.username || "FlyHost User").split(" ");
+      const pteroUsername = `fh${user.id}`;
       const pteroUser = await createPteroUser(
         user.email,
-        user.username,
-        nameParts[0] || user.username,
+        pteroUsername,
+        nameParts[0] || "FlyHost",
         nameParts[1] || "User",
         `flyhost_${user.id}_${Date.now()}`
       );
@@ -368,6 +369,120 @@ router.delete("/servers/:identifier/files", requireAuth, async (req: AuthRequest
     res.status(500).json({ error: err.message });
   }
 });
+
+// POST /api/servers/:identifier/deploy — deploy project files to server
+router.post("/servers/:identifier/deploy", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const { identifier } = req.params;
+    const { gitUrl, branch, envVars, template, startCommand, projectName } = req.body;
+
+    const logs: string[] = [];
+    const log = (msg: string) => logs.push(msg);
+
+    log(`[info] Déploiement sur le serveur ${identifier}...`);
+
+    // Write .env file from env vars
+    if (envVars && Object.keys(envVars).length > 0) {
+      const envContent = Object.entries(envVars as Record<string, string>)
+        .map(([k, v]) => `${k}=${v}`)
+        .join("\n");
+      await writeFileContents(identifier, "/home/container/.env", envContent);
+      log(`[info] Fichier .env écrit (${Object.keys(envVars).length} variables)`);
+    }
+
+    // Write .flyhost.json config
+    const config = {
+      projectName: projectName || "app",
+      gitUrl: gitUrl || null,
+      branch: branch || "main",
+      deployedAt: new Date().toISOString(),
+      platform: "flyhost",
+    };
+    await writeFileContents(identifier, "/home/container/.flyhost.json", JSON.stringify(config, null, 2));
+    log(`[info] Configuration FlyHost écrite`);
+
+    if (gitUrl) {
+      // Write deploy.sh that clones/pulls and installs deps
+      const branchSafe = (branch || "main").replace(/[^a-zA-Z0-9._/-]/g, "");
+      const deployScript = [
+        "#!/bin/bash",
+        "set -e",
+        `echo "[flyhost] Clonage depuis ${gitUrl}..."`,
+        `if [ -d /home/container/app/.git ]; then`,
+        `  cd /home/container/app && git fetch origin && git reset --hard origin/${branchSafe}`,
+        `else`,
+        `  git clone --branch ${branchSafe} --depth 1 ${gitUrl} /home/container/app`,
+        `fi`,
+        `cd /home/container/app`,
+        `[ -f package.json ] && npm install --production`,
+        `[ -f requirements.txt ] && pip install -r requirements.txt`,
+        `[ -f composer.json ] && composer install --no-dev`,
+        `echo "[flyhost] Déploiement terminé !"`,
+        startCommand ? `exec ${startCommand}` : `[ -f package.json ] && exec node . || exec python main.py`,
+      ].join("\n");
+      await writeFileContents(identifier, "/home/container/deploy.sh", deployScript);
+      log(`[build] Script de déploiement Git écrit`);
+      log(`[build] Repo: ${gitUrl} (branche: ${branchSafe})`);
+    } else if (template) {
+      // Write template starter files
+      const files = getTemplateFiles(template, projectName || "app");
+      for (const [filePath, content] of Object.entries(files)) {
+        await writeFileContents(identifier, `/home/container/${filePath}`, content);
+        log(`[build] Fichier créé: ${filePath}`);
+      }
+    }
+
+    // Power start the server
+    try {
+      await sendPowerAction(identifier, "restart");
+      log(`[info] Serveur redémarré`);
+    } catch {
+      await sendPowerAction(identifier, "start");
+      log(`[info] Serveur démarré`);
+    }
+
+    log(`[success] Déploiement terminé avec succès !`);
+    res.json({ success: true, identifier, logs });
+  } catch (err: any) {
+    console.error("Deploy error:", err);
+    res.status(500).json({ error: err.message, logs: [`[error] ${err.message}`] });
+  }
+});
+
+function getTemplateFiles(template: string, projectName: string): Record<string, string> {
+  switch (template) {
+    case "nodejs":
+    case "express":
+      return {
+        "index.js": `const express = require('express');\nconst app = express();\nconst PORT = process.env.PORT || 3000;\napp.use(express.json());\napp.get('/', (req, res) => res.json({ message: 'Bonjour depuis ${projectName} !', platform: 'FlyHost' }));\napp.listen(PORT, () => console.log(\`Serveur démarré sur le port \${PORT}\`));\n`,
+        "package.json": JSON.stringify({ name: projectName.toLowerCase().replace(/\s/g, "-"), version: "1.0.0", main: "index.js", scripts: { start: "node index.js" }, dependencies: { express: "^4.18.2" } }, null, 2),
+        "README.md": `# ${projectName}\n\nDéployé avec FlyHost.\n`,
+      };
+    case "python":
+      return {
+        "main.py": `from flask import Flask, jsonify\nimport os\napp = Flask(__name__)\nPORT = int(os.environ.get('PORT', 3000))\n@app.route('/')\ndef index():\n    return jsonify({'message': 'Bonjour depuis ${projectName} !', 'platform': 'FlyHost'})\nif __name__ == '__main__':\n    app.run(host='0.0.0.0', port=PORT)\n`,
+        "requirements.txt": "flask>=2.3.0\n",
+        "README.md": `# ${projectName}\n\nDéployé avec FlyHost.\n`,
+      };
+    case "php":
+      return {
+        "index.php": `<?php\nheader('Content-Type: application/json');\necho json_encode(['message' => 'Bonjour depuis ${projectName} !', 'platform' => 'FlyHost']);\n`,
+        "README.md": `# ${projectName}\n\nDéployé avec FlyHost.\n`,
+      };
+    case "java":
+      return {
+        "Main.java": `public class Main {\n    public static void main(String[] args) {\n        System.out.println("Bonjour depuis ${projectName} !");\n    }\n}\n`,
+      };
+    case "static":
+    case "react":
+    case "vue":
+    default:
+      return {
+        "index.html": `<!DOCTYPE html>\n<html lang="fr">\n<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${projectName}</title><style>body{font-family:system-ui,sans-serif;background:#09090b;color:#fafafa;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}h1{color:#facc15}</style></head>\n<body><div style="text-align:center"><h1>⚡ ${projectName}</h1><p>Déployé avec FlyHost</p></div></body>\n</html>\n`,
+        "README.md": `# ${projectName}\n\nDéployé avec FlyHost.\n`,
+      };
+  }
+}
 
 function formatServer(s: any) {
   const a = s.attributes;
