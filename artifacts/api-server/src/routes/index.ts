@@ -11,6 +11,12 @@ import subscriptionsRouter from "./subscriptions";
 import referralsRouter from "./referrals";
 import serversRouter from "./servers";
 import deployRouter from "./deploy";
+import notificationsRouter from "./notifications";
+import paymentRouter from "./payment";
+import marketplaceRouter from "./marketplace";
+import resellerRouter from "./reseller";
+import apikeysRouter from "./apikeys";
+import schedulesRouter from "./schedules";
 
 const router: IRouter = Router();
 
@@ -26,5 +32,11 @@ router.use(subscriptionsRouter);
 router.use(referralsRouter);
 router.use(serversRouter);
 router.use(deployRouter);
+router.use(notificationsRouter);
+router.use(paymentRouter);
+router.use(marketplaceRouter);
+router.use(resellerRouter);
+router.use(apikeysRouter);
+router.use(schedulesRouter);
 
 export default router;

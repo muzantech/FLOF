@@ -15,6 +15,16 @@ export const usersTable = pgTable("users", {
   referredBy: integer("referred_by"),
   onboardingDone: boolean("onboarding_done").notNull().default(false),
   bio: text("bio"),
+  // Streak & daily reward
+  streakDays: integer("streak_days").notNull().default(0),
+  lastDailyClaim: timestamp("last_daily_claim", { withTimezone: true }),
+  // Extended profile
+  emailVerified: boolean("email_verified").notNull().default(false),
+  whatsappNumber: text("whatsapp_number"),
+  telegramChatId: text("telegram_chat_id"),
+  discordWebhook: text("discord_webhook"),
+  isReseller: boolean("is_reseller").notNull().default(false),
+  plan: text("plan").notNull().default("free"), // free | starter | pro | business | unlimited
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

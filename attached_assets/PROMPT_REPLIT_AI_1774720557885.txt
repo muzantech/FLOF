@@ -1,0 +1,456 @@
+Tu es un développeur senior Node.js/Express. Tu vas construire FLYHOST, une plateforme d'hébergement gaming et applications. Implémente TOUT ce qui suit de façon complète, sans simplifier, sans mock, sans placeholder, sans TODO, sans "à compléter". Chaque fonction doit être entièrement fonctionnelle.
+
+## STACK TECHNIQUE
+- Backend : Node.js + Express
+- Base de données : SQLite (via better-sqlite3)
+- Panneau de contrôle serveurs : Pterodactyl Panel (API Application + Client)
+- Paiement : MoneyFusion (FCFA/XOF)
+- Proxy : http-proxy (Node.js natif)
+- DNS : Cloudflare API
+- Reverse proxy externe : Nginx (wildcard SSL *.flihost.site)
+- Compression : AdmZip + archiver
+- Git clone : child_process.exec (git CLI)
+- PDF : pdfkit
+- Email : nodemailer
+- Rate limiting : express-rate-limit
+- Authentification : JWT (jsonwebtoken) + bcrypt
+- Upload fichiers : multer
+
+---
+
+## 1. BASE DE DONNÉES — TABLES SQLITE
+
+Crée toutes ces tables au démarrage si elles n'existent pas :
+
+users (id, username, email, password_hash, plan, coins, referral_code, referred_by, email_verified, is_admin, is_reseller, streak_days, last_daily_claim, whatsapp_number, created_at)
+servers (id, user_id, name, server_identifier, pterodactyl_server_id, plan, status, expires_at, auto_renew, alloc_port, alloc_ip, custom_subdomain, custom_domain, tech_env, created_at)
+deployments (id, server_id, user_id, deploy_type, deploy_source, status, build_log, env_vars, flyhost_config, git_branch, git_commit, auto_deploy, last_deployed, created_at, updated_at)
+deployment_snapshots (id, deployment_id, server_id, snapshot_path, snapshot_size, created_at)
+transactions (id, user_id, payment_id, token_pay, amount, currency, type, status, metadata, created_at)
+subscriptions (id, user_id, plan, coins_paid, started_at, expires_at, auto_renew, created_at)
+server_metrics (id, server_id, cpu_percent, ram_mb, disk_mb, network_rx, network_tx, recorded_at)
+referrals (id, referrer_id, referred_id, coins_earned, created_at)
+marketplace_items (id, seller_id, title, description, price_coins, category, file_content, downloads, rating, created_at)
+marketplace_purchases (id, item_id, buyer_id, seller_id, price_paid, commission, created_at)
+marketplace_reviews (id, item_id, user_id, rating, comment, created_at)
+resellers (id, user_id, business_name, shop_slug, commission_rate, balance_coins, contract_signed_at, created_at)
+reseller_clients (id, reseller_id, client_user_id, created_at)
+promo_codes (id, code, creator_id, discount_percent, max_uses, uses_count, expires_at, created_at)
+notifications (id, user_id, type, title, message, read, created_at)
+server_activity_logs (id, server_id, user_id, action, details, created_at)
+audit_logs (id, user_id, action, ip_address, details, created_at)
+api_keys (id, user_id, key_hash, name, webhook_url, telegram_chat_id, whatsapp_number, permissions, created_at)
+restart_schedules (id, server_id, frequency, hour, minute, enabled, last_run, created_at)
+
+---
+
+## 2. CONFIGURATION GLOBALE
+
+const PLANS_CONFIG = {
+  free:      { ram: 256,   disk: 5120,   cpu: 50,  max_servers: 1,   duration_days: 30 },
+  starter:   { ram: 1024,  disk: 10240,  cpu: 100, max_servers: 3,   duration_days: 30 },
+  pro:       { ram: 4096,  disk: 20480,  cpu: 200, max_servers: 10,  duration_days: 30 },
+  business:  { ram: 8192,  disk: 40960,  cpu: 300, max_servers: 15,  duration_days: 30 },
+  unlimited: { ram: 20480, disk: 102400, cpu: 500, max_servers: 999, duration_days: 30 },
+}
+const PLAN_COINS_PRICES = { free: 0, starter: 50, pro: 120, business: 170, unlimited: 500 }
+const TECH_ENVIRONMENTS = {
+  nodejs: { egg_id: 15, image: 'ghcr.io/parkervcp/yolks:nodejs_22', detect: ['package.json','index.js','app.js','server.js'] },
+  python: { egg_id: 16, image: 'ghcr.io/parkervcp/yolks:python_3.11', detect: ['requirements.txt','main.py','app.py','bot.py'] },
+  php:    { egg_id: 17, image: 'ghcr.io/parkervcp/yolks:php_8.2', detect: ['index.php','composer.json'] },
+  static: { egg_id: 18, image: 'ghcr.io/parkervcp/yolks:nodejs_22', detect: ['index.html'] },
+  java:   { egg_id: 19, image: 'ghcr.io/parkervcp/yolks:java_17', detect: ['pom.xml','build.gradle'] },
+}
+const MONEYFUSION_CONFIG = {
+  api_url:    'https://www.pay.moneyfusion.net/FLYHOST/[TON_TOKEN]/pay/',
+  status_url: 'https://www.pay.moneyfusion.net/paiementNotif/',
+}
+const CLOUDFLARE_CONFIG = {
+  api_token: process.env.CLOUDFLARE_TOKEN,
+  zone_id:   process.env.CLOUDFLARE_ZONE_ID,
+  domain:    'flihost.site',
+}
+
+---
+
+## 3. SYSTÈME DE SOUS-DOMAINES & PROXY
+
+### 3a. Middleware proxy — PREMIER middleware Express déclaré
+- Extraire le hostname de req.headers.host
+- Si sous-domaine de flihost.site : chercher en DB servers WHERE custom_subdomain = sous-domaine OU server_identifier = sous-domaine -> si trouvé : discoverContainerIp(server.alloc_port) puis proxy vers ip:port
+- Si domaine custom : chercher en DB servers WHERE custom_domain = hostname -> proxy identique
+- Cache JS Map avec TTL 60 secondes par hostname
+- Si erreur proxy -> invalider le cache et réessayer une fois
+
+### 3b. discoverContainerIp(port)
+- Scanner le subnet Docker 172.18.0.1 -> 172.18.0.254
+- Pour chaque IP, tenter une connexion TCP au port donné
+- Retourner la première IP qui répond
+- Mettre en cache containerIpCache[port] = ip
+
+### 3c. Routes API sous-domaines
+PUT /api/servers/:id/subdomain — Valider regex ^[a-z0-9-]{3,32}$, vérifier unicité, UPDATE servers SET custom_subdomain, invalider cache
+PUT /api/servers/:id/custom-domain — Valider regex ^([a-z0-9-]+\.)+[a-z]{2,}$, UPDATE servers SET custom_domain, invalider cache
+
+### 3d. ensureWildcardDNS()
+- GET Cloudflare DNS records pour *.flihost.site
+- Si absent -> POST pour créer record A *.flihost.site -> SERVER_IP (proxied: true)
+- Appeler au démarrage du serveur
+
+### 3e. syncAllocPortsFromPterodactyl()
+- Toutes les 15 minutes
+- Pour chaque serveur actif en DB : GET /api/application/servers/{ptero_id}
+- Mettre à jour alloc_port si changé + invalider cache
+
+---
+
+## 4. DÉPLOIEMENT ZIP
+
+POST /api/deploy/zip (multer upload):
+1. Valider présence ZIP et server_id
+2. Scanner entrées ZIP pour détecter la techno via TECH_ENVIRONMENTS
+3. INSERT deployments (status: 'building', deploy_type: 'zip')
+4. Lancer deployFromZip() dans un timeout de 10 minutes
+5. Répondre immédiatement avec { deployment_id }
+
+deployFromZip(deploymentId, zipPath, serverId, envVars):
+1. saveSnapshot() -> copier le ZIP actuel dans uploads/snapshots/ (JAMAIS /tmp/)
+2. Extraire dans /tmp/flyhost-deploy-{deploymentId}/
+3. Flatten : si un seul dossier racine ET qu'il ne s'appelle pas 'src','lib','app' -> déplacer contenu à la racine
+4. Supprimer node_modules/ et package-lock.json
+5. Créer .env à partir de envVars
+6. Vérifier taille totale < 500 MB
+7. buildZipFromDir() -> créer ZIP propre
+8. uploadZipToPterodactyl(serverIdentifier, zipBuffer)
+9. autoSwitchEnvironment() -> changer egg Pterodactyl; si échec -> status='failed' et ARRÊTER
+10. Poll /resources Pterodactyl toutes les 5s pendant max 3 minutes -> si 'running' : status='deployed'; si timeout : status='failed'
+11. Nettoyer /tmp/flyhost-deploy-{deploymentId}/ dans un bloc finally
+12. logDeployment() à chaque étape -> UPDATE build_log + global.broadcastLog() via SSE
+
+uploadZipToPterodactyl(identifier, zipBuffer):
+1. GET /api/client/servers/{id}/files/upload -> URL signée
+2. POST ZIP vers URL signée via form-data
+3. POST /api/client/servers/{id}/files/decompress { root: '/', file: 'upload.zip' }
+4. DELETE /api/client/servers/{id}/files/delete { files: ['upload.zip'] }
+
+---
+
+## 5. DÉPLOIEMENT GITHUB
+
+POST /api/deploy/github — Body: { server_id, repo_url, branch, env_vars, auto_deploy }:
+1. Tenter GET flyhost.json depuis racine repo via GitHub API
+2. Si absent -> detectTechnologyFromFiles() via GitHub Trees API
+3. INSERT deployments (status: 'building', deploy_type: 'github', git_branch)
+4. Lancer deployFromGitHub() en arrière-plan
+5. Répondre immédiatement avec { deployment_id }
+
+deployFromGitHub(deploymentId, repoUrl, branch, serverId, envVars):
+1. saveSnapshot() -> uploads/snapshots/
+2. git clone --depth 1 --branch {branch} {url} /tmp/flyhost-deploy-{id}/ — injecter token GitHub si disponible
+3. UPDATE deployments SET git_commit = (git rev-parse HEAD)
+4. Créer .env
+5. Vérifier taille
+6. buildZipFromDir() -> uploadZipToPterodactyl()
+7. autoSwitchEnvironment() — si échec -> status='failed' et ARRÊTER
+8. Poll status Pterodactyl jusqu'à 'running' ou timeout 3 min
+9. Nettoyer /tmp/ dans finally
+
+POST /api/webhook/github/:serverId:
+- Secret HMAC unique par serveur (stocké en DB), vérifier X-Hub-Signature-256
+- Si event='push' et branche = git_branch du serveur -> relancer deployFromGitHub()
+
+GET /api/deploy/detect-tech — Body: { repo_url } ou { file_list }:
+- Si repo_url : fetch GitHub Trees API
+- detectTechnologyFromFiles(files) : comparer avec TECH_ENVIRONMENTS[].detect
+- Retourner { tech, egg_id, confidence }
+
+---
+
+## 6. SUIVI DÉPLOIEMENTS SSE
+
+GET /api/servers/:id/logs/sse:
+- Auth via query param token=JWT
+- Headers : Content-Type: text/event-stream, Cache-Control: no-cache
+- Stocker res dans Map sseLogsClients[serverId]
+- Envoyer immédiatement les 200 dernières lignes du build_log
+- Heartbeat toutes 2s : data: {"type":"hb"}\n\n
+- On close : supprimer de la Map
+
+global.broadcastLog(serverId, message) -> event: log, data: { message, timestamp }
+global.broadcastDeployStatus(serverId, status, message) -> event: status, data: { status, message }
+global.broadcastDeployFailed(serverId, buildLog) -> analyzeDeployError(buildLog) puis event: failed, data: { suggestions[] }
+
+analyzeDeployError(log) — retourner des suggestions précises pour :
+- MODULE_NOT_FOUND -> "Vérifiez package.json et les dépendances"
+- EADDRINUSE -> "Le port est déjà utilisé, redémarrez le serveur"
+- ModuleNotFoundError -> "Ajoutez le module manquant à requirements.txt"
+- Error: Cannot find module -> "Vérifiez le point d'entrée dans flyhost.json"
+- permission denied -> "Problème de permissions sur le fichier d'entrée"
+
+---
+
+## 7. ROLLBACK
+
+saveSnapshot(deploymentId, serverId):
+- Télécharger fichiers actuels du serveur Pterodactyl
+- Sauvegarder dans uploads/snapshots/{serverId}/{deploymentId}-{timestamp}.zip
+- INSERT deployment_snapshots (snapshot_path dans uploads/)
+- Garder seulement les 5 derniers snapshots par serveur (supprimer les anciens)
+
+POST /api/deploy/:deploymentId/rollback/:snapshotId:
+1. SELECT deployment_snapshots WHERE id = snapshotId
+2. Vérifier que snapshot_path existe sur le disque
+3. uploadZipToPterodactyl() avec le fichier snapshot
+4. UPDATE deployments SET status='deployed'
+5. Loguer dans audit_logs
+
+---
+
+## 8. CRON JOBS
+
+Toutes les heures :
+- Supprimer serveurs expirés (expires_at < NOW()) -> callPterodactylAPI DELETE + DELETE servers
+- Nettoyer /tmp/flyhost-deploy-*/ de plus de 2h
+- Passer les déploiements 'building' de plus de 15 min à 'failed' + broadcastDeployStatus
+
+Tous les jours à 08h00 :
+- Auto-renouvellement : si auto_renew=1 et coins >= PLAN_COINS_PRICES[plan] -> déduire coins + étendre expires_at 30 jours + INSERT notifications
+- Si coins insuffisants -> INSERT notifications "Renouvellement échoué — rechargez vos coins"
+
+Toutes les 5 minutes :
+- Collecter métriques CPU/RAM/Disk pour tous serveurs actifs -> INSERT server_metrics
+- Si CPU > 90% ou status passe à 'offline' -> sendEmail alerte + INSERT notifications
+
+Alertes expiration (cron quotidien) :
+- J-7, J-3, J-1 avant expires_at -> sendEmail + INSERT notifications
+
+Toutes les 15 minutes :
+- syncAllocPortsFromPterodactyl()
+
+---
+
+## 9. PAIEMENT MONEYFUSION
+
+POST /api/payment/initiate — Body: { plan, duration, promo_code }:
+1. Valider promo_code si fourni -> appliquer remise
+2. Calculer montant FCFA selon PLAN_COINS_PRICES
+3. Générer paymentId UUID unique
+4. INSERT transactions (status: 'pending', token_pay: paymentId)
+5. POST vers MONEYFUSION_CONFIG.api_url avec { amount, currency: 'XOF', orderId: paymentId, returnUrl, webhookUrl }
+6. Retourner { payment_url }
+
+POST /api/payment/webhook:
+1. Trouver transaction par tokenPay
+2. Vérifier qu'elle est encore 'pending'
+3. UPDATE transactions SET status='completed'
+4. Si type='coins' -> UPDATE users SET coins = coins + amount
+5. Si type='plan'  -> createPanelFromPayment() -> provisionner serveur Pterodactyl
+6. Générer facture PDF avec pdfkit -> envoyer par email
+
+GET /payment/callback -> vérifier status transaction en DB -> redirect /payment-success.html ou /payment-cancel.html
+GET /api/payment/status/:token -> poll MoneyFusion API
+GET /api/payment/transaction-status/:paymentId -> vérifier DB puis poll MoneyFusion si pending
+
+---
+
+## 10. COINS & RÉCOMPENSES
+
+POST /api/daily-reward/claim (auth requise):
+1. Vérifier last_daily_claim > 20h
+2. Calculer streak : si dernier claim < 24h -> streak++, sinon streak=1
+3. coins_to_give = 5 + (streak * 2)
+4. Bonus : streak=7 -> +20, streak=100 -> +100, streak=365 -> +500
+5. UPDATE users SET coins = coins + coins_to_give, streak_days = streak, last_daily_claim = NOW()
+6. Retourner { coins_given, new_balance, streak, next_bonus_at }
+
+---
+
+## 11. PARRAINAGE
+
+POST /api/auth/register : si ?ref=CODE présent -> trouver utilisateur avec ce referral_code -> INSERT referrals -> UPDATE coins +10 parrain +5 filleul
+GET /api/referral/info -> { code, url, referral_count, total_coins_earned }
+GET /api/referral/leaderboard -> Top 10 parrains triés par total_coins_earned
+
+---
+
+## 12. MARKETPLACE
+
+GET  /api/marketplace              -> liste avec filtres catégorie, prix, note
+POST /api/marketplace              -> créer article (vendeur authentifié)
+GET  /api/marketplace/:id          -> détail article
+POST /api/marketplace/:id/buy      -> déduire coins acheteur, créditer vendeur 90%, commission 10%, INSERT marketplace_purchases, retourner contenu digital
+POST /api/marketplace/:id/review   -> noter 1-5 + commentaire (acheteurs uniquement)
+GET  /shop/:slug                   -> page boutique revendeur
+
+---
+
+## 13. SYSTÈME REVENDEUR
+
+POST /api/reseller/register  -> accepter contrat + INSERT resellers
+GET  /api/reseller/dashboard -> stats clients, revenus, balance
+POST /api/reseller/buy-bulk  -> achat capacité en gros, discount 20%
+POST /api/reseller/clients   -> ajouter client sous sa gestion
+GET  /api/reseller/clients   -> liste de ses clients
+POST /api/reseller/withdraw  -> demande retrait balance en coins
+POST /api/reseller/promo     -> créer code promo custom pour ses clients
+
+---
+
+## 14. NOTIFICATIONS MULTI-CANAUX
+
+sendEmail(to, subject, html) -> nodemailer SMTP via env vars
+sendWhatsApp(number, message) -> déléguer à whatsapp-bot.js
+sendDiscordWebhook(url, embed) -> POST Discord webhook avec embed
+sendTelegram(chat_id, message) -> POST https://api.telegram.org/bot{TOKEN}/sendMessage
+
+Notifications in-app :
+INSERT notifications (user_id, type, title, message, read=false)
+GET  /api/notifications        -> liste non lues
+POST /api/notifications/:id/read -> marquer lue
+
+---
+
+## 15. SÉCURITÉ & ANTI-ABUS
+
+authLimiter : 5 requêtes / 15 minutes par IP sur routes /api/auth/*
+apiLimiter  : 100 requêtes / minute par IP sur toutes routes /api/*
+
+requireEmailVerification : middleware appliqué sur toutes routes de déploiement et paiement
+
+Sanitization flyhost.json — avant toute injection dans Pterodactyl :
+- start_cmd : regex whitelist ^[a-zA-Z0-9 ./\-_${}]+$ — rejeter si non conforme
+- node_version : liste blanche ['18','20','22'] uniquement
+- Ne JAMAIS interpoler directement dans exec() sans validation
+
+Vérification coins atomique (transaction SQLite) avant toute opération monétaire :
+- BEGIN TRANSACTION -> SELECT coins FROM users WHERE id = ? -> if coins < price -> ROLLBACK + erreur -> sinon UPDATE + COMMIT
+
+Chaque action sensible -> INSERT audit_logs (user_id, action, ip_address, details, created_at)
+
+---
+
+## 16. TOUTES LES ROUTES
+
+Auth :
+POST /api/auth/register
+POST /api/auth/login
+POST /api/auth/logout
+GET  /api/auth/me
+POST /api/verify-email
+POST /api/auth/forgot-password
+POST /api/auth/reset-password
+
+Serveurs :
+POST   /api/servers/create
+GET    /api/servers
+GET    /api/servers/:id
+DELETE /api/servers/:id
+POST   /api/servers/:id/power       -> { action: 'start'|'stop'|'restart' }
+GET    /api/servers/:id/status      -> CPU/RAM/Disk temps réel depuis Pterodactyl
+GET    /api/servers/:id/logs/sse
+PUT    /api/servers/:id/rename
+PUT    /api/servers/:id/subdomain
+PUT    /api/servers/:id/custom-domain
+
+Schedules :
+POST   /api/servers/:id/schedules
+GET    /api/servers/:id/schedules
+PUT    /api/servers/:id/schedules/:scheduleId
+DELETE /api/servers/:id/schedules/:scheduleId
+
+Déploiements :
+POST /api/deploy/zip
+POST /api/deploy/github
+POST /api/deploy/template
+GET  /api/deploy/detect-tech
+GET  /api/servers/:id/deployments
+GET  /api/deploy/:deploymentId/status
+GET  /api/deploy/:deploymentId/logs
+POST /api/deploy/:deploymentId/rollback/:snapshotId
+POST /api/webhook/github/:serverId
+
+Plans & paiements :
+GET  /api/subscriptions/plans
+POST /api/subscriptions/subscribe
+POST /api/payment/initiate
+POST /api/payment/webhook
+GET  /api/payment/status/:token
+GET  /api/payment/transaction-status/:paymentId
+GET  /payment/callback
+
+Coins & récompenses :
+POST /api/daily-reward/claim
+GET  /api/referral/info
+GET  /api/referral/leaderboard
+GET  /api/promo/validate
+
+Marketplace :
+GET  /api/marketplace
+POST /api/marketplace
+GET  /api/marketplace/:id
+POST /api/marketplace/:id/buy
+POST /api/marketplace/:id/review
+GET  /shop/:slug
+
+Revendeurs :
+POST /api/reseller/register
+GET  /api/reseller/dashboard
+POST /api/reseller/buy-bulk
+POST /api/reseller/clients
+GET  /api/reseller/clients
+POST /api/reseller/withdraw
+POST /api/reseller/promo
+
+Notifications :
+GET  /api/notifications
+POST /api/notifications/:id/read
+
+API Keys :
+POST /api/keys/create
+GET  /api/keys
+DELETE /api/keys/:id
+
+Admin :
+GET    /api/admin/users
+GET    /api/admin/servers
+GET    /api/admin/stats
+PUT    /api/admin/users/:id/plan
+DELETE /api/admin/users/:id
+GET    /api/admin/geomap
+
+---
+
+## VARIABLES D'ENVIRONNEMENT REQUISES
+
+DATABASE_PATH=./flyhost.db
+JWT_SECRET=
+PTERODACTYL_URL=https://panel.flihost.site
+PTERODACTYL_API_KEY=
+PTERODACTYL_CLIENT_KEY=
+SERVER_IP=
+CLOUDFLARE_TOKEN=
+CLOUDFLARE_ZONE_ID=
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASS=
+TELEGRAM_BOT_TOKEN=
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+NODE_ENV=production
+PORT=3000
+
+---
+
+## RÈGLES ABSOLUES — NE PAS SIMPLIFIER
+
+1. Tous les mots de passe hashés avec bcrypt (rounds: 12)
+2. Tous les tokens JWT expirés après 7 jours
+3. Toutes les requêtes DB avec paramètres préparés — JAMAIS d'interpolation directe
+4. Les snapshots stockés dans uploads/snapshots/ — JAMAIS dans /tmp/
+5. Chaque action sensible loggée dans audit_logs
+6. Le middleware proxy déclaré AVANT tous les autres middlewares Express
+7. Transactions SQLite pour TOUTES les opérations monétaires
+8. Nettoyer /tmp/ dans un bloc finally après chaque déploiement
+9. Pas de mock, pas de placeholder, pas de TODO, pas de "à implémenter"
+10. Chaque fonction listée ci-dessus doit être entièrement implémentée et opérationnelle

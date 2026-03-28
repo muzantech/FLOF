@@ -4,6 +4,8 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { pteroClientRequest } from "./pterodactyl";
 import jwt from "jsonwebtoken";
+import { startCronJobs } from "./cron";
+import { ensureWildcardDNS } from "./cloudflare";
 
 const rawPort = process.env["PORT"];
 
@@ -143,10 +145,14 @@ wss.on("connection", async (clientWs: WebSocket, _request: http.IncomingMessage,
 });
 
 // Start the server
-server.listen(port, (err?: Error) => {
+server.listen(port, async (err?: Error) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
   }
   logger.info({ port }, "Server listening");
+
+  // Boot tasks (non-blocking)
+  ensureWildcardDNS().catch(e => logger.warn({ e }, "ensureWildcardDNS failed"));
+  startCronJobs();
 });

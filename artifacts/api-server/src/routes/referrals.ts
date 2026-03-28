@@ -45,6 +45,120 @@ router.get("/referrals/my", requireAuth, async (req: AuthRequest, res): Promise<
   });
 });
 
+// GET /api/referral/info — spec-compatible route
+router.get("/referral/info", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+  if (!user.referralCode) {
+    const code = generateReferralCode(user.username);
+    await db.update(usersTable).set({ referralCode: code }).where(eq(usersTable.id, user.id));
+    user.referralCode = code;
+  }
+
+  const referralsList = await db.select().from(referralsTable).where(eq(referralsTable.referrerId, req.userId!));
+  const totalEarned = referralsList.reduce((s, r) => s + r.rewardCoins, 0);
+
+  res.json({
+    code: user.referralCode,
+    url: `${process.env.APP_URL || "https://flihost.site"}/register?ref=${user.referralCode}`,
+    referralCount: referralsList.length,
+    totalCoinsEarned: totalEarned,
+  });
+});
+
+// GET /api/referral/leaderboard — top 10 referrers
+router.get("/referral/leaderboard", async (_req, res): Promise<void> => {
+  try {
+    const rows = await db.select({
+      userId: referralsTable.referrerId,
+      totalCoins: count(referralsTable.id),
+      name: usersTable.name,
+      username: usersTable.username,
+      avatarUrl: usersTable.avatarUrl,
+    }).from(referralsTable)
+      .leftJoin(usersTable, eq(referralsTable.referrerId, usersTable.id))
+      .groupBy(referralsTable.referrerId, usersTable.name, usersTable.username, usersTable.avatarUrl)
+      .orderBy(desc(count(referralsTable.id)))
+      .limit(10);
+    res.json({ leaderboard: rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/daily-reward/claim — full streak system
+router.post("/daily-reward/claim", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+    if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+    const now = new Date();
+    const lastClaim = user.lastDailyClaim ? new Date(user.lastDailyClaim) : null;
+
+    // Cooldown: 20 hours
+    if (lastClaim) {
+      const hoursAgo = (now.getTime() - lastClaim.getTime()) / 1000 / 3600;
+      if (hoursAgo < 20) {
+        const nextClaim = new Date(lastClaim.getTime() + 20 * 3600 * 1000);
+        res.status(429).json({
+          error: "Récompense déjà réclamée",
+          nextClaimAt: nextClaim.toISOString(),
+          hoursLeft: (20 - hoursAgo).toFixed(1),
+        });
+        return;
+      }
+    }
+
+    // Calculate streak
+    let streak = 1;
+    if (lastClaim) {
+      const hoursAgo = (now.getTime() - lastClaim.getTime()) / 1000 / 3600;
+      if (hoursAgo < 24) {
+        streak = (user.streakDays || 0) + 1;
+      } else {
+        streak = 1; // streak broken
+      }
+    }
+
+    // Base coins: 5 + (streak * 2)
+    let coinsToGive = 5 + (streak * 2);
+
+    // Streak bonuses
+    if (streak === 7)   coinsToGive += 20;
+    if (streak === 14)  coinsToGive += 30;
+    if (streak === 30)  coinsToGive += 50;
+    if (streak === 100) coinsToGive += 100;
+    if (streak === 365) coinsToGive += 500;
+
+    const newBalance = user.coins + coinsToGive;
+    const nextBonusAt = streak < 7 ? 7 : streak < 14 ? 14 : streak < 30 ? 30 : streak < 100 ? 100 : 365;
+
+    await db.update(usersTable).set({
+      coins: newBalance,
+      streakDays: streak,
+      lastDailyClaim: now,
+    }).where(eq(usersTable.id, req.userId!));
+
+    await db.insert(coinTransactionsTable).values({
+      userId: req.userId!,
+      type: "credit",
+      category: "daily_login",
+      amount: coinsToGive,
+      description: `Récompense journalière — Jour ${streak} (streak)`,
+    });
+
+    res.json({
+      coinsGiven: coinsToGive,
+      newBalance,
+      streak,
+      nextBonusAt,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/referrals/apply
 router.post("/referrals/apply", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   const { code } = req.body;

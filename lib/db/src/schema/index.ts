@@ -5,3 +5,8 @@ export * from "./deployments";
 export * from "./domains";
 export * from "./envvars";
 export * from "./subscriptions";
+export * from "./notifications";
+export * from "./marketplace";
+export * from "./resellers";
+export * from "./metrics";
+export * from "./payments";

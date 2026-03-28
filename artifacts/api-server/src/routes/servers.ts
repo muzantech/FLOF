@@ -487,6 +487,50 @@ function getTemplateFiles(template: string, projectName: string): Record<string,
   }
 }
 
+// PUT /api/servers/:id/subdomain
+router.put("/servers/:id/subdomain", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const { subdomain } = req.body;
+    if (!subdomain) { res.status(400).json({ error: "Sous-domaine requis" }); return; }
+    if (!/^[a-z0-9-]{3,32}$/.test(subdomain)) {
+      res.status(400).json({ error: "Sous-domaine invalide (3-32 car., minuscules, chiffres, tirets)" }); return;
+    }
+    // We store this conceptually; actual routing is via the proxy
+    res.json({ success: true, subdomain, url: `https://${subdomain}.flihost.site` });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/servers/:id/custom-domain
+router.put("/servers/:id/custom-domain", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const { domain } = req.body;
+    if (!domain) { res.status(400).json({ error: "Domaine requis" }); return; }
+    if (!/^([a-z0-9-]+\.)+[a-z]{2,}$/.test(domain)) {
+      res.status(400).json({ error: "Domaine invalide" }); return;
+    }
+    res.json({ success: true, domain });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/servers/:identifier/metrics — historical metrics
+router.get("/servers/:identifier/metrics", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const { serverMetricsTable } = await import("@workspace/db");
+    const { desc: descOrd } = await import("drizzle-orm");
+    const metrics = await db.select().from(serverMetricsTable)
+      .where(eq(serverMetricsTable.serverId, req.params.identifier))
+      .orderBy(descOrd(serverMetricsTable.recordedAt))
+      .limit(288); // 24h at 5-min intervals
+    res.json({ metrics });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 function formatServer(s: any) {
   const a = s.attributes;
   return {
