@@ -142,7 +142,7 @@ export default function DeployPage() {
         <p style={{ color: "#71717A", fontSize: "16px" }}>Déployez votre projet en quelques clics</p>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "340px 1fr", gap: "20px", alignItems: "start" }}>
+      <div className="flex flex-col lg:grid lg:[grid-template-columns:340px_1fr] gap-5 items-start">
         {/* Left panel - config */}
         <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           {/* Project name */}

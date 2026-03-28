@@ -23,9 +23,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { 
   Github, ExternalLink, GitBranch, Clock, Terminal, Globe, 
-  Lock, Trash2, ArrowUpRight, Play, CheckCircle2, ShieldAlert
+  Lock, Trash2, ArrowUpRight, ArrowRight, Play, CheckCircle2, ShieldAlert
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -51,10 +52,10 @@ export default function ProjectDetailPage() {
 
   const handleDeploy = async () => {
     try {
-      await createDeploy({ projectId, data: { branch: project?.gitBranch || "main", commitMessage: "Manual deployment triggered" } });
-      toast({ title: "Deployment started", description: "Check the deployments tab for progress." });
+      await createDeploy({ projectId, data: { branch: project?.gitBranch || "main", commitMessage: "Déploiement manuel" } });
+      toast({ title: "Déploiement lancé", description: "Consultez l'onglet Déploiements pour suivre la progression." });
     } catch (error: any) {
-      toast({ variant: "destructive", title: "Deployment failed", description: error.message });
+      toast({ variant: "destructive", title: "Échec du déploiement", description: error.message });
     }
   };
 
@@ -100,26 +101,26 @@ export default function ProjectDetailPage() {
             {project.latestDeploymentUrl && (
               <Button variant="outline" asChild className="bg-secondary/50 border-border">
                 <a href={project.latestDeploymentUrl} target="_blank" rel="noreferrer">
-                  Visit <ArrowUpRight className="w-4 h-4 ml-2" />
+                  Visiter <ArrowUpRight className="w-4 h-4 ml-2" />
                 </a>
               </Button>
             )}
             <Button 
               onClick={handleDeploy} 
               disabled={deploying}
-              className="bg-white text-black hover:bg-gray-200 shadow-[0_0_15px_rgba(255,255,255,0.15)] transition-all"
+              className="bg-yellow-400 text-black hover:bg-yellow-300 font-semibold transition-all"
             >
-              {deploying ? "Starting..." : <><Play className="w-4 h-4 mr-2" /> Deploy</>}
+              {deploying ? "En cours…" : <><Play className="w-4 h-4 mr-2" /> Déployer</>}
             </Button>
           </div>
         </div>
 
         <Tabs defaultValue="overview" className="w-full">
           <TabsList className="bg-transparent border-b border-border w-full justify-start rounded-none h-12 p-0 space-x-6">
-            <TabsTrigger value="overview" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-white rounded-none h-full px-1 text-muted-foreground data-[state=active]:text-white">Overview</TabsTrigger>
-            <TabsTrigger value="deployments" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-white rounded-none h-full px-1 text-muted-foreground data-[state=active]:text-white">Deployments</TabsTrigger>
-            <TabsTrigger value="domains" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-white rounded-none h-full px-1 text-muted-foreground data-[state=active]:text-white">Domains</TabsTrigger>
-            <TabsTrigger value="env" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-white rounded-none h-full px-1 text-muted-foreground data-[state=active]:text-white">Environment</TabsTrigger>
+            <TabsTrigger value="overview" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-white rounded-none h-full px-1 text-muted-foreground data-[state=active]:text-white">Vue d'ensemble</TabsTrigger>
+            <TabsTrigger value="deployments" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-white rounded-none h-full px-1 text-muted-foreground data-[state=active]:text-white">Déploiements</TabsTrigger>
+            <TabsTrigger value="domains" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-white rounded-none h-full px-1 text-muted-foreground data-[state=active]:text-white">Domaines</TabsTrigger>
+            <TabsTrigger value="env" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-white rounded-none h-full px-1 text-muted-foreground data-[state=active]:text-white">Environnement</TabsTrigger>
           </TabsList>
 
           {/* OVERVIEW TAB */}
@@ -129,7 +130,7 @@ export default function ProjectDetailPage() {
                 <Card className="bg-card border-border overflow-hidden">
                   <CardHeader className="bg-secondary/20 border-b border-border/50 pb-4">
                     <CardTitle className="text-lg flex items-center justify-between">
-                      Production Deployment
+                      Déploiement en production
                       {project.latestDeploymentStatus && (
                          <DeploymentStatusBadge status={project.latestDeploymentStatus as DeploymentStatus} />
                       )}
@@ -147,17 +148,17 @@ export default function ProjectDetailPage() {
                           />
                           <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
                              <a href={project.latestDeploymentUrl || '#'} target="_blank" rel="noreferrer" className="px-4 py-2 bg-white text-black rounded-full font-medium flex items-center">
-                               Visit Site <ArrowUpRight className="w-4 h-4 ml-1" />
+                               Visiter le site <ArrowUpRight className="w-4 h-4 ml-1" />
                              </a>
                           </div>
                         </div>
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
                           <div>
-                            <p className="text-muted-foreground mb-1">Domains</p>
+                            <p className="text-muted-foreground mb-1">Domaine</p>
                             <p className="font-medium text-white truncate">{project.slug}.flyhost.app</p>
                           </div>
                           <div>
-                            <p className="text-muted-foreground mb-1">Branch</p>
+                            <p className="text-muted-foreground mb-1">Branche</p>
                             <p className="font-medium text-white flex items-center gap-1">
                               <GitBranch className="w-3 h-3" /> {project.gitBranch || "main"}
                             </p>
@@ -165,11 +166,11 @@ export default function ProjectDetailPage() {
                           <div>
                             <p className="text-muted-foreground mb-1">Commit</p>
                             <p className="font-medium text-white truncate font-mono text-xs mt-0.5">
-                              {deployments[0]?.commit?.substring(0, 7) || "manual"}
+                              {deployments[0]?.commit?.substring(0, 7) || "manuel"}
                             </p>
                           </div>
                           <div>
-                            <p className="text-muted-foreground mb-1">Age</p>
+                            <p className="text-muted-foreground mb-1">Âge</p>
                             <p className="font-medium text-white">
                               {formatDistanceToNow(new Date(project.updatedAt), { addSuffix: true })}
                             </p>
@@ -178,7 +179,7 @@ export default function ProjectDetailPage() {
                       </div>
                     ) : (
                       <div className="py-12 text-center text-muted-foreground">
-                        No deployments yet. Click "Deploy" to create one.
+                        Aucun déploiement. Cliquez sur "Déployer" pour en créer un.
                       </div>
                     )}
                   </CardContent>
@@ -188,7 +189,7 @@ export default function ProjectDetailPage() {
               <div className="space-y-6">
                 <Card className="bg-card border-border">
                   <CardHeader>
-                    <CardTitle className="text-base">Repository</CardTitle>
+                    <CardTitle className="text-base">Dépôt Git</CardTitle>
                   </CardHeader>
                   <CardContent>
                     {project.gitRepo ? (
@@ -200,7 +201,7 @@ export default function ProjectDetailPage() {
                         <ExternalLink className="w-4 h-4 text-muted-foreground" />
                       </a>
                     ) : (
-                      <p className="text-sm text-muted-foreground">Not connected to Git</p>
+                      <p className="text-sm text-muted-foreground">Non connecté à Git</p>
                     )}
                   </CardContent>
                 </Card>
@@ -215,8 +216,8 @@ export default function ProjectDetailPage() {
                         {project.framework?.substring(0,3) || 'APP'}
                       </div>
                       <div>
-                        <p className="font-medium capitalize text-white">{project.framework || 'Custom'}</p>
-                        <p className="text-xs text-muted-foreground">Preset configuration</p>
+                        <p className="font-medium capitalize text-white">{project.framework || 'Personnalisé'}</p>
+                        <p className="text-xs text-muted-foreground">Configuration prédéfinie</p>
                       </div>
                     </div>
                   </CardContent>
@@ -230,7 +231,7 @@ export default function ProjectDetailPage() {
             <Card className="bg-card border-border overflow-hidden">
               <div className="divide-y divide-border/50">
                 {depsLoading ? (
-                  <div className="p-6 text-center text-muted-foreground">Loading...</div>
+                  <div className="p-6 text-center text-muted-foreground">Chargement…</div>
                 ) : deployments && deployments.length > 0 ? (
                   deployments.map((dep) => (
                     <Link key={dep.id} href={`/deployments/${dep.id}`}>
@@ -241,7 +242,7 @@ export default function ProjectDetailPage() {
                           </div>
                           <div>
                             <div className="font-medium text-white flex items-center gap-2">
-                              {dep.commitMessage || "Manual Deployment"}
+                              {dep.commitMessage || "Déploiement manuel"}
                               {dep.isProduction && <Badge variant="secondary" className="text-[10px] h-5 px-1.5 bg-blue-500/10 text-blue-400 border-blue-500/20">Production</Badge>}
                             </div>
                             <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground font-mono">
@@ -259,7 +260,7 @@ export default function ProjectDetailPage() {
                             </span>
                           )}
                           <Button variant="ghost" size="sm" className="hidden group-hover:flex">
-                            View Logs <ArrowRight className="w-4 h-4 ml-1" />
+                            Voir les logs <ArrowRight className="w-4 h-4 ml-1" />
                           </Button>
                         </div>
                       </div>
@@ -268,7 +269,7 @@ export default function ProjectDetailPage() {
                 ) : (
                   <div className="p-12 text-center text-muted-foreground">
                     <Terminal className="w-10 h-10 mx-auto mb-3 opacity-50" />
-                    No deployments found.
+                    Aucun déploiement trouvé.
                   </div>
                 )}
               </div>
@@ -303,9 +304,9 @@ function DomainsManager({ projectId, domains, addDomain, removeDomain }: any) {
     try {
       await addDomain({ projectId, data: { name: newDomain } });
       setNewDomain("");
-      toast({ title: "Domain added" });
+      toast({ title: "Domaine ajouté" });
     } catch (err: any) {
-      toast({ variant: "destructive", title: "Error", description: err.message });
+      toast({ variant: "destructive", title: "Erreur", description: err.message });
     }
   };
 
@@ -313,18 +314,18 @@ function DomainsManager({ projectId, domains, addDomain, removeDomain }: any) {
     <div className="space-y-6">
       <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle>Add Domain</CardTitle>
-          <CardDescription>Assign a custom domain to this project.</CardDescription>
+          <CardTitle>Ajouter un domaine</CardTitle>
+          <CardDescription>Assignez un domaine personnalisé à ce projet.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleAdd} className="flex gap-3">
             <Input 
-              placeholder="example.com" 
+              placeholder="exemple.com" 
               value={newDomain} 
               onChange={e => setNewDomain(e.target.value)}
               className="max-w-md bg-secondary/50"
             />
-            <Button type="submit" className="bg-white text-black hover:bg-gray-200">Add</Button>
+            <Button type="submit" className="bg-white text-black hover:bg-gray-200">Ajouter</Button>
           </form>
         </CardContent>
       </Card>
@@ -338,11 +339,11 @@ function DomainsManager({ projectId, domains, addDomain, removeDomain }: any) {
                 <span className="font-medium text-white">{d.name}</span>
                 {d.verified ? (
                   <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 text-xs">
-                    <CheckCircle2 className="w-3 h-3 mr-1" /> Verified
+                    <CheckCircle2 className="w-3 h-3 mr-1" /> Vérifié
                   </Badge>
                 ) : (
                   <Badge variant="outline" className="bg-amber-500/10 text-amber-500 border-amber-500/20 text-xs">
-                    <ShieldAlert className="w-3 h-3 mr-1" /> Unverified
+                    <ShieldAlert className="w-3 h-3 mr-1" /> Non vérifié
                   </Badge>
                 )}
               </div>
@@ -353,7 +354,7 @@ function DomainsManager({ projectId, domains, addDomain, removeDomain }: any) {
           ))}
           {domains.length === 0 && (
             <div className="p-8 text-center text-muted-foreground text-sm">
-              No custom domains added yet.
+              Aucun domaine personnalisé ajouté.
             </div>
           )}
         </div>
@@ -379,9 +380,9 @@ function EnvVarsManager({ projectId, envVars, createEnvVar, deleteEnvVar }: any)
     try {
       await createEnvVar({ projectId, data });
       form.reset();
-      toast({ title: "Environment variable added" });
+      toast({ title: "Variable ajoutée" });
     } catch (err: any) {
-      toast({ variant: "destructive", title: "Error", description: err.message });
+      toast({ variant: "destructive", title: "Erreur", description: err.message });
     }
   };
 
@@ -389,31 +390,31 @@ function EnvVarsManager({ projectId, envVars, createEnvVar, deleteEnvVar }: any)
     <div className="space-y-6">
       <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle>Environment Variables</CardTitle>
-          <CardDescription>Provide environment variables to your deployment.</CardDescription>
+          <CardTitle>Variables d'environnement</CardTitle>
+          <CardDescription>Fournissez des variables d'environnement à votre déploiement.</CardDescription>
         </CardHeader>
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col sm:flex-row items-start gap-4">
               <FormField control={form.control} name="key" render={({field}) => (
-                <FormItem className="flex-1 w-full"><FormControl><Input placeholder="EXAMPLE_NAME" {...field} className="bg-secondary/50 font-mono text-sm" /></FormControl></FormItem>
+                <FormItem className="flex-1 w-full"><FormControl><Input placeholder="NOM_VARIABLE" {...field} className="bg-secondary/50 font-mono text-sm" /></FormControl></FormItem>
               )} />
               <FormField control={form.control} name="value" render={({field}) => (
-                <FormItem className="flex-1 w-full"><FormControl><Input placeholder="value" type="password" {...field} className="bg-secondary/50 font-mono text-sm" /></FormControl></FormItem>
+                <FormItem className="flex-1 w-full"><FormControl><Input placeholder="valeur" type="password" {...field} className="bg-secondary/50 font-mono text-sm" /></FormControl></FormItem>
               )} />
               <FormField control={form.control} name="environment" render={({field}) => (
-                <FormItem className="w-full sm:w-[150px]">
+                <FormItem className="w-full sm:w-[160px]">
                   <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl><SelectTrigger className="bg-secondary/50"><SelectValue /></SelectTrigger></FormControl>
                     <SelectContent>
                       <SelectItem value="production">Production</SelectItem>
-                      <SelectItem value="preview">Preview</SelectItem>
-                      <SelectItem value="development">Development</SelectItem>
+                      <SelectItem value="preview">Prévisualisation</SelectItem>
+                      <SelectItem value="development">Développement</SelectItem>
                     </SelectContent>
                   </Select>
                 </FormItem>
               )} />
-              <Button type="submit" className="w-full sm:w-auto bg-white text-black hover:bg-gray-200">Add</Button>
+              <Button type="submit" className="w-full sm:w-auto bg-white text-black hover:bg-gray-200">Ajouter</Button>
             </form>
           </Form>
         </CardContent>
@@ -439,7 +440,7 @@ function EnvVarsManager({ projectId, envVars, createEnvVar, deleteEnvVar }: any)
           ))}
           {envVars.length === 0 && (
             <div className="p-8 text-center text-muted-foreground text-sm">
-              No environment variables defined.
+              Aucune variable définie.
             </div>
           )}
         </div>
