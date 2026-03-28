@@ -4,8 +4,7 @@ import { db, usersTable, coinTransactionsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import {
   EGG_CONFIGS,
-  createPteroUser,
-  getPteroUserByEmail,
+  getOrCreatePteroUser,
   createPteroServer,
   suspendPteroServer,
   unsuspendPteroServer,
@@ -116,24 +115,9 @@ router.post("/servers", requireAuth, async (req: AuthRequest, res): Promise<void
       return;
     }
 
-    // Ensure Pterodactyl user exists for this FlyHost user
-    let pteroUserId: number;
-    const existingPteroUser = await getPteroUserByEmail(user.email);
-    if (existingPteroUser) {
-      pteroUserId = existingPteroUser.attributes.id;
-    } else {
-      // Create ptero user — username must be unique, use fh<userId>
-      const nameParts = (user.name || user.username || "FlyHost User").split(" ");
-      const pteroUsername = `fh${user.id}`;
-      const pteroUser = await createPteroUser(
-        user.email,
-        pteroUsername,
-        nameParts[0] || "FlyHost",
-        nameParts[1] || "User",
-        `flyhost_${user.id}_${Date.now()}`
-      );
-      pteroUserId = pteroUser.attributes.id;
-    }
+    // Ensure Pterodactyl user exists for this FlyHost user (idempotent)
+    const pteroUser = await getOrCreatePteroUser(user.email, user.id, user.name || user.username || "FlyHost User");
+    const pteroUserId = pteroUser.attributes.id;
 
     // Create server on Pterodactyl
     const serverData = await createPteroServer({

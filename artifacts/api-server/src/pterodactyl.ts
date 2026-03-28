@@ -163,13 +163,44 @@ export async function createPteroUser(email: string, username: string, firstName
     last_name: lastName,
     password,
     root_admin: false,
-    language: "fr",
+    language: "en",
   });
 }
 
 export async function getPteroUserByEmail(email: string) {
   const data = await pteroAppRequest(`/users?filter[email]=${encodeURIComponent(email)}`);
   return data.data?.[0] || null;
+}
+
+export async function getPteroUserByUsername(username: string) {
+  const data = await pteroAppRequest(`/users?filter[username]=${encodeURIComponent(username)}`);
+  return data.data?.[0] || null;
+}
+
+/**
+ * getOrCreatePteroUser — idempotent: finds by email, then by username, then creates.
+ * Handles all edge cases: previous partial creations, username collisions, etc.
+ */
+export async function getOrCreatePteroUser(
+  email: string,
+  userId: number,
+  name: string,
+): Promise<{ attributes: { id: number } }> {
+  // 1. Look up by email (most reliable)
+  const byEmail = await getPteroUserByEmail(email);
+  if (byEmail) return byEmail;
+
+  const username = `fh${userId}`;
+  const nameParts = (name || "FlyHost User").split(" ");
+  const firstName = nameParts[0] || "FlyHost";
+  const lastName = nameParts[1] || "User";
+
+  // 2. Look up by username (catches partial previous creations)
+  const byUsername = await getPteroUserByUsername(username);
+  if (byUsername) return byUsername;
+
+  // 3. Create fresh
+  return createPteroUser(email, username, firstName, lastName, `flyhost_${userId}_${Date.now()}`);
 }
 
 export async function createPteroServer(opts: {
