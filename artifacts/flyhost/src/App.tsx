@@ -16,6 +16,18 @@ import TeamsPage from "@/pages/teams";
 import SettingsPage from "@/pages/settings";
 import NotFound from "@/pages/not-found";
 
+// New pages
+import OnboardingPage from "@/pages/onboarding";
+import ProfilePage from "@/pages/profile";
+import SubscriptionPage from "@/pages/subscription";
+import DeployPage from "@/pages/deploy";
+import ReferralPage from "@/pages/referral";
+import InvoicesPage from "@/pages/invoices";
+import HistoryPage from "@/pages/history";
+import StatusPage from "@/pages/status";
+import DocsPage from "@/pages/docs";
+import AdminPage from "@/pages/admin";
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -71,6 +83,20 @@ function Router() {
       <Route path="/deployments/:id"><ProtectedRoute component={DeploymentDetailPage} /></Route>
       <Route path="/teams"><ProtectedRoute component={TeamsPage} /></Route>
       <Route path="/settings"><ProtectedRoute component={SettingsPage} /></Route>
+      
+      {/* New Routes */}
+      <Route path="/onboarding"><ProtectedRoute component={OnboardingPage} /></Route>
+      <Route path="/profile"><ProtectedRoute component={ProfilePage} /></Route>
+      <Route path="/subscription"><ProtectedRoute component={SubscriptionPage} /></Route>
+      <Route path="/deploy"><ProtectedRoute component={DeployPage} /></Route>
+      <Route path="/referral"><ProtectedRoute component={ReferralPage} /></Route>
+      <Route path="/invoices"><ProtectedRoute component={InvoicesPage} /></Route>
+      <Route path="/history"><ProtectedRoute component={HistoryPage} /></Route>
+      <Route path="/admin"><ProtectedRoute component={AdminPage} /></Route>
+      
+      {/* Public Routes */}
+      <Route path="/status" component={StatusPage} />
+      <Route path="/docs" component={DocsPage} />
       
       <Route component={NotFound} />
     </Switch>

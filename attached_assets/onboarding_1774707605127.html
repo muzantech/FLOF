@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bienvenue — FLYHOST</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/global.css">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .ob-card {
+            width: 100%;
+            max-width: 560px;
+            background: rgba(14,14,19,0.97);
+            border: 1px solid rgba(250,204,21,0.18);
+            border-radius: 28px;
+            padding: 40px 36px;
+            box-shadow: 0 32px 80px rgba(0,0,0,0.6);
+            animation: zoomIn 0.4s ease-out;
+        }
+
+        /* Progress steps */
+        .ob-steps {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0;
+            margin-bottom: 36px;
+        }
+        .ob-step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+        }
+        .ob-step-dot {
+            width: 36px; height: 36px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 800; font-size: 14px;
+            border: 2px solid rgba(250,204,21,0.2);
+            color: var(--text-muted);
+            background: transparent;
+            transition: all 0.3s ease;
+        }
+        .ob-step.active .ob-step-dot {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #09090B;
+            box-shadow: 0 0 20px rgba(250,204,21,0.4);
+        }
+        .ob-step.done .ob-step-dot {
+            background: var(--green);
+            border-color: var(--green);
+            color: white;
+        }
+        .ob-step-label {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+        .ob-step.active .ob-step-label { color: var(--accent); }
+        .ob-step.done .ob-step-label { color: var(--green); }
+        .ob-connector {
+            height: 2px;
+            width: 60px;
+            background: rgba(250,204,21,0.1);
+            margin-bottom: 22px;
+            transition: background 0.3s;
+        }
+        .ob-connector.done { background: var(--green); }
+
+        /* Step content */
+        .ob-step-content { display: none; }
+        .ob-step-content.active {
+            display: block;
+            animation: fadeInUp 0.35s ease-out;
+        }
+
+        .ob-icon {
+            width: 72px; height: 72px;
+            border-radius: 20px;
+            background: rgba(250,204,21,0.12);
+            border: 1px solid rgba(250,204,21,0.25);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 32px;
+            margin: 0 auto 20px;
+            animation: glowPulse 3s infinite;
+        }
+
+        .ob-title {
+            font-size: 24px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            text-align: center;
+            margin-bottom: 8px;
+        }
+        .ob-sub {
+            font-size: 14px;
+            color: var(--text-muted);
+            text-align: center;
+            margin-bottom: 28px;
+            line-height: 1.6;
+        }
+
+        /* Feature list */
+        .ob-features {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 28px;
+        }
+        .ob-feature {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 14px 16px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(250,204,21,0.08);
+            border-radius: 12px;
+            transition: all 0.2s;
+        }
+        .ob-feature:hover {
+            border-color: rgba(250,204,21,0.2);
+            background: rgba(250,204,21,0.04);
+        }
+        .ob-feature-icon {
+            width: 38px; height: 38px;
+            border-radius: 10px;
+            background: rgba(250,204,21,0.1);
+            color: var(--accent);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+        .ob-feature-text strong {
+            display: block;
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 2px;
+        }
+        .ob-feature-text span {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        /* Coins earned banner */
+        .ob-coins-banner {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            padding: 16px 20px;
+            background: rgba(250,204,21,0.08);
+            border: 1px solid rgba(250,204,21,0.22);
+            border-radius: 14px;
+            margin-bottom: 28px;
+        }
+        .ob-coins-amount {
+            font-size: 36px;
+            font-weight: 900;
+            color: var(--accent);
+            line-height: 1;
+        }
+
+        /* Server type selector */
+        .ob-server-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .ob-server-btn {
+            padding: 14px 12px;
+            border-radius: 12px;
+            border: 1.5px solid rgba(250,204,21,0.14);
+            background: transparent;
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        .ob-server-btn i { font-size: 22px; color: var(--text-muted); transition: color 0.2s; }
+        .ob-server-btn:hover,
+        .ob-server-btn.selected {
+            border-color: var(--accent);
+            background: rgba(250,204,21,0.08);
+            color: var(--accent);
+        }
+        .ob-server-btn.selected i { color: var(--accent); }
+
+        /* CTA button */
+        .ob-btn {
+            width: 100%;
+            padding: 14px;
+            border-radius: 50px;
+            font-family: inherit;
+            font-size: 15px;
+            font-weight: 800;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .ob-btn-primary {
+            background: var(--accent);
+            color: #09090B;
+            box-shadow: 0 4px 20px rgba(250,204,21,0.3);
+        }
+        .ob-btn-primary:hover {
+            background: var(--accent-light);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 28px rgba(250,204,21,0.45);
+        }
+        .ob-btn-ghost {
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 13px;
+            padding: 10px;
+            margin-top: 8px;
+        }
+        .ob-btn-ghost:hover { color: var(--text); }
+
+        /* Success step */
+        .ob-success-anim {
+            text-align: center;
+            padding: 10px 0;
+        }
+        .ob-success-circle {
+            width: 100px; height: 100px;
+            border-radius: 50%;
+            background: rgba(16,185,129,0.12);
+            border: 2px solid var(--green);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 44px;
+            color: var(--green);
+            margin: 0 auto 24px;
+            animation: zoomIn 0.5s cubic-bezier(0.175,0.885,0.32,1.275);
+        }
+
+        /* ——— RESPONSIVE ——— */
+
+        /* max-width corrigé avec min() pour éviter le débordement */
+        .ob-card {
+            max-width: min(520px, calc(100vw - 24px));
+        }
+
+        /* 768px — tablette portrait */
+        @media (max-width: 768px) {
+            body { padding: 16px; }
+            .ob-card {
+                padding: 32px 28px;
+                border-radius: 22px;
+            }
+            .ob-steps { gap: 0; }
+            .ob-connector { width: 44px; }
+            .ob-title { font-size: 22px; }
+            .ob-coins-amount { font-size: 30px; }
+            .ob-server-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+        }
+
+        /* 480px — mobile standard */
+        @media (max-width: 480px) {
+            body { padding: 12px; }
+            .ob-card {
+                padding: 16px;
+                border-radius: 18px;
+                box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+            }
+            .ob-steps { gap: 0; }
+            .ob-connector { width: 28px; }
+            .ob-step-dot { width: 30px; height: 30px; font-size: 12px; }
+            .ob-step-label { font-size: 9px; }
+            .ob-icon { width: 56px; height: 56px; font-size: 24px; border-radius: 16px; }
+            .ob-title { font-size: 20px; }
+            .ob-sub { font-size: 13px; margin-bottom: 20px; }
+            .ob-features { gap: 8px; margin-bottom: 20px; }
+            .ob-feature { padding: 10px 12px; gap: 10px; }
+            .ob-feature-icon { width: 32px; height: 32px; font-size: 14px; }
+            .ob-feature-text strong { font-size: 12px; }
+            .ob-coins-banner { padding: 12px 14px; gap: 8px; flex-wrap: wrap; justify-content: flex-start; }
+            .ob-coins-amount { font-size: 28px; }
+            .ob-server-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+            .ob-server-btn { padding: 12px 8px; font-size: 12px; gap: 6px; }
+            .ob-server-btn i { font-size: 18px; }
+            .ob-btn { padding: 12px; font-size: 14px; }
+            .ob-success-circle { width: 80px; height: 80px; font-size: 36px; }
+        }
+
+        /* 360px — micro-téléphones */
+        @media (max-width: 360px) {
+            body { padding: 8px; }
+            .ob-card {
+                padding: 12px 10px;
+                border-radius: 14px;
+                max-width: calc(100vw - 16px);
+            }
+            .ob-connector { width: 16px; }
+            .ob-step-dot { width: 26px; height: 26px; font-size: 11px; }
+            .ob-step-label { display: none; }
+            .ob-icon { width: 48px; height: 48px; font-size: 20px; }
+            .ob-title { font-size: 18px; }
+            .ob-sub { font-size: 12px; }
+            .ob-coins-banner { padding: 10px 10px; }
+            .ob-coins-amount { font-size: 24px; }
+            .ob-server-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
+            .ob-server-btn { padding: 10px 6px; font-size: 11px; }
+            .ob-btn { padding: 10px; font-size: 13px; border-radius: 40px; }
+            .ob-success-circle { width: 68px; height: 68px; font-size: 30px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="animated-bg">
+        <div class="gradient-orb orb1"></div>
+        <div class="gradient-orb orb2"></div>
+        <div class="gradient-orb orb3"></div>
+    </div>
+
+    <div class="ob-card">
+        <!-- Logo -->
+        <a href="/" style="display:flex;align-items:center;justify-content:center;gap:10px;text-decoration:none;margin-bottom:32px">
+            <div style="width:40px;height:40px;border-radius:10px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:16px;color:#09090B;animation:glowPulse 4s infinite">F</div>
+            <span style="font-size:20px;font-weight:900;color:var(--text);letter-spacing:-0.5px">FLY<span style="color:var(--accent)">HOST</span></span>
+        </a>
+
+        <!-- Steps indicator -->
+        <div class="ob-steps">
+            <div class="ob-step active" id="s1">
+                <div class="ob-step-dot" id="dot1">1</div>
+                <div class="ob-step-label">Bienvenue</div>
+            </div>
+            <div class="ob-connector" id="c1"></div>
+            <div class="ob-step" id="s2">
+                <div class="ob-step-dot" id="dot2">2</div>
+                <div class="ob-step-label">Mon projet</div>
+            </div>
+            <div class="ob-connector" id="c2"></div>
+            <div class="ob-step" id="s3">
+                <div class="ob-step-dot" id="dot3">3</div>
+                <div class="ob-step-label">C'est parti !</div>
+            </div>
+        </div>
+
+        <!-- STEP 1: Welcome + coins earned -->
+        <div class="ob-step-content active" id="content1">
+            <div class="ob-icon"><i class="fas fa-rocket" style="color:var(--accent)"></i></div>
+            <h1 class="ob-title">Bienvenue sur FLYHOST ! 🎉</h1>
+            <p class="ob-sub">Votre compte est prêt. Vous avez reçu des coins de bienvenue pour démarrer !</p>
+
+            <div class="ob-coins-banner">
+                <i class="fas fa-coins" style="font-size:28px;color:var(--accent)"></i>
+                <div>
+                    <div class="ob-coins-amount">+10</div>
+                    <div style="font-size:12px;color:var(--text-muted);font-weight:600">coins offerts</div>
+                </div>
+                <div style="width:1px;height:40px;background:rgba(250,204,21,0.2);margin:0 4px"></div>
+                <div style="font-size:13px;color:var(--text-secondary);line-height:1.4">
+                    Gagnez <strong style="color:var(--accent)">10 coins</strong> chaque jour en vous connectant.<br>
+                    Invitez des amis pour en gagner encore plus !
+                </div>
+            </div>
+
+            <div class="ob-features">
+                <div class="ob-feature">
+                    <div class="ob-feature-icon"><i class="fas fa-server"></i></div>
+                    <div class="ob-feature-text">
+                        <strong>Serveurs de jeu gratuits</strong>
+                        <span>Minecraft, Rust, CS:GO et bien plus...</span>
+                    </div>
+                </div>
+                <div class="ob-feature">
+                    <div class="ob-feature-icon"><i class="fab fa-discord"></i></div>
+                    <div class="ob-feature-text">
+                        <strong>Bots Discord hébergés</strong>
+                        <span>Node.js, Python, votre code déployé en 1 clic</span>
+                    </div>
+                </div>
+                <div class="ob-feature">
+                    <div class="ob-feature-icon"><i class="fas fa-globe"></i></div>
+                    <div class="ob-feature-text">
+                        <strong>Applications web</strong>
+                        <span>React, Vue, Express — GitHub ou ZIP</span>
+                    </div>
+                </div>
+            </div>
+
+            <button class="ob-btn ob-btn-primary" onclick="goStep(2)">
+                <i class="fas fa-arrow-right"></i> Continuons
+            </button>
+        </div>
+
+        <!-- STEP 2: Choose project type -->
+        <div class="ob-step-content" id="content2">
+            <div class="ob-icon"><i class="fas fa-cube" style="color:var(--accent)"></i></div>
+            <h1 class="ob-title">Quel est votre projet ?</h1>
+            <p class="ob-sub">Cela nous aide à vous guider vers le bon déploiement.</p>
+
+            <div class="ob-server-grid">
+                <button class="ob-server-btn" onclick="selectProject(this,'minecraft')">
+                    <i class="fas fa-cube"></i>
+                    Serveur Minecraft
+                </button>
+                <button class="ob-server-btn" onclick="selectProject(this,'discord')">
+                    <i class="fab fa-discord"></i>
+                    Bot Discord
+                </button>
+                <button class="ob-server-btn" onclick="selectProject(this,'web')">
+                    <i class="fas fa-globe"></i>
+                    App Web
+                </button>
+                <button class="ob-server-btn" onclick="selectProject(this,'game')">
+                    <i class="fas fa-gamepad"></i>
+                    Autre jeu
+                </button>
+                <button class="ob-server-btn" onclick="selectProject(this,'python')">
+                    <i class="fab fa-python"></i>
+                    Script Python
+                </button>
+                <button class="ob-server-btn" onclick="selectProject(this,'other')">
+                    <i class="fas fa-ellipsis-h"></i>
+                    Autre
+                </button>
+            </div>
+
+            <button class="ob-btn ob-btn-primary" onclick="goStep(3)" id="continueStep2" disabled style="opacity:0.5;cursor:not-allowed">
+                <i class="fas fa-arrow-right"></i> Continuer
+            </button>
+            <button class="ob-btn ob-btn-ghost" onclick="goStep(3)">Passer cette étape</button>
+        </div>
+
+        <!-- STEP 3: Done -->
+        <div class="ob-step-content" id="content3">
+            <div class="ob-success-anim">
+                <div class="ob-success-circle"><i class="fas fa-check"></i></div>
+                <h1 class="ob-title">C'est parti ! 🚀</h1>
+                <p class="ob-sub">Votre profil est configuré. Rendez-vous sur le dashboard pour créer votre premier serveur !</p>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:24px 0;text-align:left">
+                    <a href="/dashboard" style="display:flex;align-items:center;gap:10px;padding:14px;border-radius:12px;background:rgba(250,204,21,0.08);border:1px solid rgba(250,204,21,0.2);text-decoration:none;color:var(--text);transition:all 0.2s" onmouseover="this.style.background='rgba(250,204,21,0.15)'" onmouseout="this.style.background='rgba(250,204,21,0.08)'">
+                        <i class="fas fa-chart-pie" style="color:var(--accent);font-size:20px;width:24px;text-align:center"></i>
+                        <div><strong style="font-size:13px">Dashboard</strong><br><span style="font-size:11px;color:var(--text-muted)">Voir mes serveurs</span></div>
+                    </a>
+                    <a href="/deploy" style="display:flex;align-items:center;gap:10px;padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);text-decoration:none;color:var(--text);transition:all 0.2s" onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">
+                        <i class="fas fa-rocket" style="color:var(--accent);font-size:20px;width:24px;text-align:center"></i>
+                        <div><strong style="font-size:13px">Déployer</strong><br><span style="font-size:11px;color:var(--text-muted)">Lancer un serveur</span></div>
+                    </a>
+                    <a href="/referral" style="display:flex;align-items:center;gap:10px;padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);text-decoration:none;color:var(--text);transition:all 0.2s" onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">
+                        <i class="fas fa-users" style="color:var(--accent);font-size:20px;width:24px;text-align:center"></i>
+                        <div><strong style="font-size:13px">Inviter</strong><br><span style="font-size:11px;color:var(--text-muted)">Gagner des coins</span></div>
+                    </a>
+                    <a href="/pricing" style="display:flex;align-items:center;gap:10px;padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);text-decoration:none;color:var(--text);transition:all 0.2s" onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">
+                        <i class="fas fa-tags" style="color:var(--accent);font-size:20px;width:24px;text-align:center"></i>
+                        <div><strong style="font-size:13px">Plans</strong><br><span style="font-size:11px;color:var(--text-muted)">Voir les offres</span></div>
+                    </a>
+                </div>
+
+                <button class="ob-btn ob-btn-primary" onclick="finishOnboarding()">
+                    <i class="fas fa-tachometer-alt"></i> Aller au Dashboard
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Redirect to dashboard if onboarding was already done
+        if (localStorage.getItem('flyhost_onboarding_done') === '1') {
+            window.location.href = '/dashboard';
+        }
+
+        // Redirect if not logged in
+        if (!localStorage.getItem('flyhost_token')) {
+            window.location.href = '/login';
+        }
+
+        let selectedProject = null;
+        let currentStep = 1;
+
+        function goStep(n) {
+            // Mark prev step as done
+            document.getElementById('content' + currentStep).classList.remove('active');
+            document.getElementById('s' + currentStep).classList.remove('active');
+            document.getElementById('s' + currentStep).classList.add('done');
+            if (n > 1) {
+                document.getElementById('dot' + currentStep).innerHTML = '<i class="fas fa-check" style="font-size:12px"></i>';
+                if (currentStep < 3) document.getElementById('c' + currentStep).classList.add('done');
+            }
+
+            currentStep = n;
+            document.getElementById('content' + n).classList.add('active');
+            document.getElementById('s' + n).classList.add('active');
+
+            if (n === 3) {
+                localStorage.setItem('flyhost_onboarding_done', '1');
+                localStorage.setItem('fh_onboarding_done', '1');
+                // Mark onboarding completed on server
+                const tok = localStorage.getItem('flyhost_token');
+                if (tok) {
+                    fetch('/api/complete-onboarding', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok }
+                    }).catch(() => {});
+                }
+                // Optional: save project type preference
+                if (selectedProject) {
+                    try {
+                        fetch('/api/profile', {
+                            method: 'PATCH',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': 'Bearer ' + tok
+                            },
+                            body: JSON.stringify({ project_type: selectedProject })
+                        }).catch(() => {});
+                    } catch (_) {}
+                }
+            }
+        }
+
+        function selectProject(btn, type) {
+            document.querySelectorAll('.ob-server-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            selectedProject = type;
+            const continueBtn = document.getElementById('continueStep2');
+            if (continueBtn) {
+                continueBtn.disabled = false;
+                continueBtn.style.opacity = '1';
+                continueBtn.style.cursor = 'pointer';
+            }
+        }
+
+        async function finishOnboarding() {
+            const tok = localStorage.getItem('flyhost_token');
+            if (tok) {
+                try {
+                    await fetch('/api/complete-onboarding', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok }
+                    });
+                } catch (_) {}
+            }
+            localStorage.setItem('fh_onboarding_done', '1');
+            localStorage.setItem('flyhost_onboarding_done', '1');
+            window.location.href = '/dashboard';
+        }
+    </script>
+</body>
+</html>

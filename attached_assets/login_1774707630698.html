@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connexion — FLYHOST</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/global.css">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        /* Bonus banner */
+        .bonus-banner {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            background: rgba(250, 204, 21, 0.08);
+            border: 1px solid rgba(250, 204, 21, 0.22);
+            border-radius: var(--radius-full);
+            padding: 7px 16px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--accent);
+            margin-bottom: 18px;
+        }
+
+        /* Auth card */
+        .auth-card {
+            width: 100%;
+            max-width: 420px;
+            background: rgba(14, 14, 19, 0.96);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-xl);
+            padding: 40px 36px;
+            animation: zoomIn 0.35s ease-out;
+            box-shadow: 0 32px 80px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(250,204,21,0.06);
+        }
+
+        /* Logo */
+        .auth-logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 28px;
+            text-decoration: none;
+        }
+        .auth-logo .logo-mark {
+            width: 42px; height: 42px;
+            border-radius: 10px;
+            background: var(--accent);
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 900; font-size: 17px;
+            color: #09090B;
+            animation: glowPulse 4s infinite;
+        }
+        .auth-logo .logo-text {
+            font-size: 22px; font-weight: 900;
+            color: var(--text);
+            letter-spacing: -0.5px;
+        }
+        .auth-logo .logo-text span { color: var(--accent); }
+
+        /* Titles */
+        .auth-title {
+            text-align: center;
+            font-size: 22px; font-weight: 800;
+            letter-spacing: -0.4px;
+            margin-bottom: 6px;
+        }
+        .auth-sub {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 13px;
+            margin-bottom: 28px;
+        }
+
+        /* Password toggle */
+        .password-toggle {
+            background: none; border: none;
+            color: var(--text-muted);
+            cursor: pointer; font-size: 14px;
+            transition: color var(--tr);
+            padding: 0;
+        }
+        .password-toggle:hover { color: var(--accent); }
+
+        /* Forgot link */
+        .forgot-link {
+            font-size: 12px; font-weight: 600;
+            color: var(--text-muted);
+            transition: color var(--tr);
+        }
+        .forgot-link:hover { color: var(--accent); }
+
+        /* Submit button */
+        .btn-submit {
+            width: 100%; padding: 13px;
+            border-radius: var(--radius-full);
+            background: var(--accent);
+            color: #09090B;
+            font-size: 14px; font-weight: 800;
+            border: none; cursor: pointer;
+            font-family: inherit;
+            box-shadow: 0 4px 20px rgba(250, 204, 21, 0.30);
+            transition: all var(--tr);
+            display: flex; align-items: center; justify-content: center;
+            gap: 8px; margin-top: 8px;
+        }
+        .btn-submit:hover:not(:disabled) {
+            background: var(--accent-light);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 28px rgba(250, 204, 21, 0.45);
+        }
+        .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-submit.btn-loading { color: transparent; }
+        .btn-submit.btn-loading::after {
+            content: '';
+            position: absolute;
+            width: 18px; height: 18px;
+            border: 2px solid rgba(9,9,11,0.3);
+            border-top-color: #09090B;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+
+        /* Auth footer */
+        .auth-footer {
+            text-align: center;
+            margin-top: 22px;
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+        .auth-footer a {
+            color: var(--accent);
+            font-weight: 700;
+        }
+        .auth-footer a:hover { text-decoration: underline; }
+
+        /* Success check */
+        .success-check {
+            text-align: center;
+            padding: 16px 0 8px;
+        }
+        .success-check i {
+            font-size: 48px;
+            color: var(--green);
+            animation: zoomIn 0.4s ease-out;
+        }
+
+        /* ===== RESPONSIVE ===== */
+        input, select, textarea { font-size: 16px !important; }
+
+        .btn-submit { min-height: 44px; }
+
+        .auth-title {
+            font-size: clamp(16px, 5vw, 22px);
+        }
+
+        @media (max-width: 480px) {
+            .auth-card { padding: 28px 20px; }
+        }
+
+        @media (max-width: 360px) {
+            .auth-card { padding: 24px 16px; max-width: calc(100vw - 24px); }
+            .auth-logo .logo-text { font-size: 18px; }
+        }
+    </style>
+    <script src="/translations.js" defer></script>
+</head>
+<body>
+
+    <div style="position:fixed;top:16px;right:16px;z-index:1000;">
+      <button id="lang-toggle-btn" onclick="FHLang.toggleLang()" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.85);font-size:12px;font-weight:700;padding:6px 12px;border-radius:8px;cursor:pointer;font-family:inherit;">EN</button>
+    </div>
+
+    <!-- Fond animé -->
+    <div class="animated-bg">
+        <div class="gradient-orb orb1"></div>
+        <div class="gradient-orb orb2"></div>
+        <div class="gradient-orb orb3"></div>
+    </div>
+
+    <!-- Auth Card -->
+    <div class="auth-card">
+
+        <!-- Logo -->
+        <a href="/" class="auth-logo">
+            <div class="logo-mark">F</div>
+            <div class="logo-text">FLY<span>HOST</span></div>
+        </a>
+
+        <!-- Bonus banner -->
+        <div style="text-align:center;">
+            <span class="bonus-banner">
+                <i class="fas fa-gift"></i> +10 coins pour votre premier déploiement !
+            </span>
+        </div>
+
+        <h1 class="auth-title">Connexion</h1>
+        <p class="auth-sub">Accédez à votre espace FLYHOST</p>
+
+        <!-- Alert -->
+        <div id="global-alert" class="alert" style="display:none; margin-bottom:16px;"></div>
+
+        <!-- Form -->
+        <form id="login-form">
+
+            <div class="form-group">
+                <label class="form-label" for="email">Adresse email</label>
+                <input
+                    type="email"
+                    class="form-control"
+                    id="email"
+                    placeholder="exemple@email.com"
+                    required
+                    autocomplete="email"
+                >
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="password">
+                    Mot de passe
+                    <button type="button" class="password-toggle" id="toggle-password">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </label>
+                <input
+                    type="password"
+                    class="form-control"
+                    id="password"
+                    placeholder="••••••••"
+                    required
+                    autocomplete="current-password"
+                >
+            </div>
+
+            <div style="text-align:right; margin-top:-10px; margin-bottom:20px;">
+                <a href="/forgot-password" class="forgot-link">Mot de passe oublié ?</a>
+            </div>
+
+            <button type="submit" class="btn-submit" id="submit-btn" style="position:relative;">
+                <i class="fas fa-arrow-right-to-bracket"></i>
+                Se connecter
+            </button>
+        </form>
+
+        <!-- Success -->
+        <div class="success-check" id="success-checkmark" style="display:none;">
+            <i class="fas fa-circle-check"></i>
+        </div>
+
+        <div class="auth-footer">
+            Pas encore de compte ?
+            <a href="/register">Inscrivez-vous gratuitement</a>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            if (localStorage.getItem('flyhost_token')) {
+                window.location.href = '/dashboard';
+            }
+
+            document.getElementById('toggle-password').addEventListener('click', function () {
+                const password = document.getElementById('password');
+                const icon = this.querySelector('i');
+                if (password.type === 'password') {
+                    password.type = 'text';
+                    icon.classList.replace('fa-eye', 'fa-eye-slash');
+                } else {
+                    password.type = 'password';
+                    icon.classList.replace('fa-eye-slash', 'fa-eye');
+                }
+            });
+
+            document.getElementById('login-form').addEventListener('submit', handleLogin);
+        });
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const email = document.getElementById('email').value.trim();
+            const password = document.getElementById('password').value;
+            const submitBtn = document.getElementById('submit-btn');
+
+            if (!email || !password) {
+                showAlert('Veuillez remplir tous les champs.', 'error');
+                return;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.classList.add('btn-loading');
+
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    localStorage.setItem('flyhost_token', data.token);
+                    localStorage.setItem('flyhost_user', JSON.stringify(data.user));
+                    if (data.refresh_token) localStorage.setItem('flyhost_refresh_token', data.refresh_token);
+                    document.getElementById('success-checkmark').style.display = 'block';
+                    showAlert('Connexion réussie ! Redirection...', 'success');
+                    if (data.user && !data.user.onboarding_completed && !localStorage.getItem('fh_onboarding_done')) {
+                        setTimeout(() => { window.location.href = '/onboarding'; }, 1400);
+                        return;
+                    }
+                    setTimeout(() => { window.location.href = '/dashboard'; }, 1400);
+                } else {
+                    if (data.code === 'EMAIL_NOT_VERIFIED') {
+                        showAlert('Email non vérifié. Redirection...', 'warning');
+                        setTimeout(() => { window.location.href = '/email-verification?email=' + encodeURIComponent(email); }, 2000);
+                    } else if (data.code === 'ACCOUNT_BANNED' || data.code === 'ACCOUNT_BANNED_PERMANENT') {
+                        showAlert('Compte suspendu. Contactez le support.', 'error');
+                    } else {
+                        showAlert(data.error || 'Identifiants incorrects.', 'error');
+                    }
+                    submitBtn.disabled = false;
+                    submitBtn.classList.remove('btn-loading');
+                }
+            } catch (err) {
+                showAlert('Erreur de connexion au serveur.', 'error');
+                submitBtn.disabled = false;
+                submitBtn.classList.remove('btn-loading');
+            }
+        }
+
+        function showAlert(message, type) {
+            const el = document.getElementById('global-alert');
+            const icons = { error: 'fa-circle-xmark', success: 'fa-circle-check', warning: 'fa-triangle-exclamation', info: 'fa-circle-info' };
+            el.innerHTML = `<i class="fas ${icons[type] || 'fa-circle-info'}"></i> ${message}`;
+            el.className = `alert alert-${type}`;
+            el.style.display = 'flex';
+            setTimeout(() => { el.style.display = 'none'; }, 5000);
+        }
+    </script>
+</body>
+</html>

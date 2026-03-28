@@ -4,3 +4,4 @@ export * from "./projects";
 export * from "./deployments";
 export * from "./domains";
 export * from "./envvars";
+export * from "./subscriptions";

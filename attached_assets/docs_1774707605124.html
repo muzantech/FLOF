@@ -1,0 +1,1145 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentation — FLYHOST</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/global.css">
+    <style>
+        :root {
+            --docs-sidebar-w: 280px;
+            --docs-toc-w: 220px;
+        }
+
+        /* ── Layout ── */
+        body { background: var(--bg); color: var(--text); font-family: 'Plus Jakarta Sans', sans-serif; line-height: 1.7; }
+
+        .docs-layout {
+            display: grid;
+            grid-template-columns: var(--docs-sidebar-w) 1fr var(--docs-toc-w);
+            min-height: 100vh;
+            padding-top: 64px;
+        }
+
+        /* ── Sidebar gauche ── */
+        .docs-sidebar {
+            position: fixed;
+            top: 64px;
+            left: 0;
+            width: var(--docs-sidebar-w);
+            height: calc(100vh - 64px);
+            overflow-y: auto;
+            border-right: 1px solid var(--border);
+            background: rgba(9,9,11,0.97);
+            padding: 28px 0 40px;
+            z-index: 50;
+        }
+        .docs-sidebar::-webkit-scrollbar { width: 4px; }
+        .docs-sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        .sidebar-logo {
+            display: flex; align-items: center; gap: 10px;
+            padding: 0 24px 24px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 20px;
+        }
+        .sidebar-logo .lm {
+            width: 34px; height: 34px; border-radius: 10px;
+            background: var(--accent); color: #09090B;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 900; font-size: 13px;
+        }
+        .sidebar-logo span { font-weight: 800; font-size: 17px; }
+
+        .sidebar-section { padding: 0 16px; margin-bottom: 28px; }
+        .sidebar-label {
+            font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+            text-transform: uppercase; color: var(--text-muted);
+            padding: 0 8px; margin-bottom: 6px;
+        }
+        .sidebar-link {
+            display: flex; align-items: center; gap: 9px;
+            padding: 8px 10px; border-radius: 8px;
+            font-size: 13.5px; font-weight: 500; color: var(--text-secondary);
+            transition: all 0.2s; cursor: pointer; text-decoration: none;
+        }
+        .sidebar-link i { width: 16px; font-size: 12px; opacity: 0.7; }
+        .sidebar-link:hover { color: var(--text); background: rgba(250,204,21,0.06); }
+        .sidebar-link.active { color: var(--accent); background: var(--accent-dim); font-weight: 600; }
+        .sidebar-link.active i { opacity: 1; }
+
+        /* ── Contenu principal ── */
+        .docs-content {
+            grid-column: 2;
+            padding: 56px 64px;
+            max-width: 820px;
+        }
+
+        /* ── TOC droite ── */
+        .docs-toc {
+            position: sticky;
+            top: 80px;
+            height: fit-content;
+            padding: 28px 24px 28px 0;
+            font-size: 12.5px;
+        }
+        .toc-title {
+            font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+            text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px;
+        }
+        .toc-link {
+            display: block; color: var(--text-secondary); padding: 5px 0 5px 12px;
+            border-left: 2px solid var(--border); transition: all 0.2s;
+            font-size: 12.5px; text-decoration: none;
+        }
+        .toc-link:hover { color: var(--accent); border-left-color: var(--accent); }
+        .toc-link.sub { padding-left: 22px; font-size: 12px; }
+
+        /* ── Topbar docs ── */
+        .docs-topbar {
+            position: fixed; top: 0; left: 0; right: 0; height: 64px; z-index: 100;
+            background: rgba(9,9,11,0.95); backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 16px; padding: 0 24px;
+        }
+        .topbar-brand { display: flex; align-items: center; gap: 10px; min-width: var(--docs-sidebar-w); }
+        .topbar-brand .lm {
+            width: 32px; height: 32px; border-radius: 9px;
+            background: var(--accent); color: #09090B;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 900; font-size: 12px;
+        }
+        .topbar-brand span { font-weight: 800; font-size: 16px; }
+        .topbar-search {
+            flex: 1; max-width: 400px;
+            display: flex; align-items: center; gap: 10px;
+            background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 9px 14px; cursor: pointer;
+        }
+        .topbar-search i { color: var(--text-muted); font-size: 13px; }
+        .topbar-search span { color: var(--text-muted); font-size: 13px; }
+        .topbar-search kbd {
+            margin-left: auto; background: rgba(255,255,255,0.06);
+            border: 1px solid var(--border); border-radius: 5px;
+            padding: 2px 6px; font-size: 11px; color: var(--text-muted); font-family: inherit;
+        }
+        .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+        .topbar-btn {
+            padding: 8px 16px; border-radius: var(--radius-full); font-size: 13px;
+            font-weight: 600; cursor: pointer; transition: all 0.2s; border: none;
+            font-family: inherit;
+        }
+        .topbar-btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); }
+        .topbar-btn-ghost:hover { color: var(--text); border-color: var(--accent); }
+        .topbar-btn-accent { background: var(--accent); color: #09090B; }
+        .topbar-btn-accent:hover { background: var(--accent-light); }
+
+        /* ── Hamburger mobile ── */
+        .docs-hamburger {
+            display: none; background: none; border: none;
+            color: var(--text); font-size: 20px; cursor: pointer; padding: 4px;
+        }
+
+        /* ── Sections contenu ── */
+        .doc-section { margin-bottom: 80px; scroll-margin-top: 90px; }
+
+        .doc-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            background: var(--accent-dim); border: 1px solid rgba(250,204,21,0.2);
+            border-radius: var(--radius-full); padding: 5px 14px;
+            font-size: 11.5px; font-weight: 700; color: var(--accent);
+            text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 14px;
+        }
+
+        .doc-h1 {
+            font-size: clamp(28px, 4vw, 40px); font-weight: 900; line-height: 1.15;
+            margin-bottom: 16px; letter-spacing: -0.02em;
+        }
+        .doc-h1 em { font-style: normal; color: var(--accent); }
+
+        .doc-h2 {
+            font-size: clamp(20px, 3vw, 26px); font-weight: 800; margin-bottom: 14px;
+            margin-top: 56px; padding-top: 56px; border-top: 1px solid var(--border);
+            scroll-margin-top: 90px; letter-spacing: -0.01em;
+        }
+        .doc-h2:first-of-type { margin-top: 0; padding-top: 0; border-top: none; }
+
+        .doc-h3 {
+            font-size: 17px; font-weight: 700; margin-bottom: 10px; margin-top: 32px;
+            scroll-margin-top: 90px; color: var(--text);
+        }
+
+        .doc-lead {
+            font-size: 16px; color: var(--text-secondary); line-height: 1.75;
+            margin-bottom: 28px; max-width: 680px;
+        }
+
+        .doc-p { font-size: 15px; color: var(--text-secondary); line-height: 1.8; margin-bottom: 16px; }
+        .doc-p strong { color: var(--text); font-weight: 600; }
+        .doc-p a { color: var(--accent); }
+
+        /* ── Hero section ── */
+        .docs-hero {
+            background: linear-gradient(135deg, rgba(250,204,21,0.06) 0%, transparent 60%);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-xl);
+            padding: 48px;
+            margin-bottom: 56px;
+            position: relative; overflow: hidden;
+        }
+        .docs-hero::before {
+            content: '';
+            position: absolute; top: -60px; right: -60px;
+            width: 280px; height: 280px;
+            background: radial-gradient(circle, rgba(250,204,21,0.12) 0%, transparent 70%);
+            border-radius: 50%;
+        }
+
+        /* ── Steps ── */
+        .steps { display: flex; flex-direction: column; gap: 0; margin: 28px 0; }
+        .step {
+            display: flex; gap: 20px; align-items: flex-start;
+            position: relative; padding-bottom: 32px;
+        }
+        .step:last-child { padding-bottom: 0; }
+        .step:last-child .step-line { display: none; }
+        .step-left { display: flex; flex-direction: column; align-items: center; }
+        .step-num {
+            width: 40px; height: 40px; border-radius: 50%;
+            background: var(--accent); color: #09090B;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 900; font-size: 16px; flex-shrink: 0; position: relative; z-index: 1;
+        }
+        .step-line {
+            width: 2px; flex: 1; min-height: 32px;
+            background: linear-gradient(to bottom, var(--accent-dark), transparent);
+            margin-top: 4px;
+        }
+        .step-body { flex: 1; padding-top: 8px; }
+        .step-body h4 { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+        .step-body p { font-size: 14px; color: var(--text-secondary); line-height: 1.7; }
+        .step-body .step-img {
+            margin-top: 14px; border-radius: var(--radius);
+            border: 1px solid var(--border); background: var(--surface-card);
+            padding: 16px; font-size: 13px; color: var(--text-muted);
+        }
+
+        /* ── Cards grille ── */
+        .cards-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin: 24px 0; }
+        .cards-grid-3 { grid-template-columns: repeat(3, 1fr); }
+
+        .doc-card {
+            background: var(--surface-card); border: 1px solid var(--border);
+            border-radius: var(--radius-lg); padding: 24px;
+            transition: all 0.25s;
+        }
+        .doc-card:hover { border-color: var(--border-strong); transform: translateY(-2px); box-shadow: var(--shadow-accent); }
+        .doc-card-icon {
+            width: 44px; height: 44px; border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 20px; margin-bottom: 14px;
+        }
+        .ic-yellow { background: var(--accent-dim); color: var(--accent); }
+        .ic-green  { background: var(--green-dim); color: var(--green); }
+        .ic-blue   { background: var(--info-dim); color: var(--info); }
+        .ic-purple { background: rgba(167,139,250,0.12); color: #a78bfa; }
+        .ic-orange { background: var(--warning-dim); color: var(--warning); }
+        .ic-red    { background: var(--error-dim); color: var(--error); }
+
+        .doc-card h4 { font-size: 14px; font-weight: 700; margin-bottom: 7px; color: var(--text); }
+        .doc-card p  { font-size: 13px; color: var(--text-secondary); line-height: 1.65; }
+        .doc-card .card-link {
+            display: inline-flex; align-items: center; gap: 5px; margin-top: 12px;
+            font-size: 12.5px; font-weight: 600; color: var(--accent);
+        }
+        .doc-card .card-link:hover { gap: 8px; }
+
+        /* ── Callout boxes ── */
+        .callout {
+            display: flex; gap: 14px; align-items: flex-start;
+            border-radius: var(--radius); padding: 16px 20px;
+            margin: 24px 0; font-size: 14px; line-height: 1.7;
+        }
+        .callout i { margin-top: 2px; flex-shrink: 0; font-size: 15px; }
+        .callout-tip   { background: var(--accent-dim); border: 1px solid rgba(250,204,21,0.2); color: var(--text-secondary); }
+        .callout-tip i { color: var(--accent); }
+        .callout-info  { background: var(--info-dim); border: 1px solid rgba(56,189,248,0.2); color: var(--text-secondary); }
+        .callout-info i { color: var(--info); }
+        .callout-success { background: var(--green-dim); border: 1px solid rgba(34,197,94,0.2); color: var(--text-secondary); }
+        .callout-success i { color: var(--green); }
+        .callout-warn  { background: var(--warning-dim); border: 1px solid rgba(245,158,11,0.2); color: var(--text-secondary); }
+        .callout-warn i { color: var(--warning); }
+
+        /* ── Code inline ── */
+        code {
+            background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 5px; padding: 2px 7px; font-size: 13px;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace; color: var(--accent);
+        }
+        .code-block {
+            background: #0d0d10; border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 20px 22px;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 13px; line-height: 1.7; overflow-x: auto;
+            margin: 16px 0; color: #e2e8f0; position: relative;
+        }
+        .code-block .comment { color: #52525b; }
+        .code-block .string  { color: #86efac; }
+        .code-block .key     { color: var(--accent); }
+        .code-block .val     { color: #93c5fd; }
+
+        /* ── Plan badges ── */
+        .plan-table { width: 100%; border-collapse: collapse; margin: 24px 0; }
+        .plan-table th {
+            background: var(--surface-card); padding: 12px 16px;
+            text-align: left; font-size: 13px; font-weight: 700;
+            border-bottom: 1px solid var(--border); color: var(--text-muted);
+            text-transform: uppercase; letter-spacing: 0.06em;
+        }
+        .plan-table td {
+            padding: 13px 16px; font-size: 14px; color: var(--text-secondary);
+            border-bottom: 1px solid var(--border);
+        }
+        .plan-table tr:hover td { background: rgba(255,255,255,0.02); }
+        .plan-table .plan-name { color: var(--text); font-weight: 700; }
+        .check { color: var(--green); }
+        .cross { color: var(--text-muted); }
+
+        /* ── Badge plans ── */
+        .badge {
+            display: inline-block; padding: 2px 10px; border-radius: var(--radius-full);
+            font-size: 11px; font-weight: 700;
+        }
+        .badge-free    { background: var(--green-dim); color: var(--green); }
+        .badge-starter { background: var(--info-dim); color: var(--info); }
+        .badge-pro     { background: var(--accent-dim); color: var(--accent); }
+        .badge-premium { background: rgba(167,139,250,0.12); color: #a78bfa; }
+
+        /* ── FAQ ── */
+        .faq-item {
+            border: 1px solid var(--border); border-radius: var(--radius);
+            margin-bottom: 10px; overflow: hidden;
+        }
+        .faq-q {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 16px 20px; cursor: pointer; font-size: 14.5px; font-weight: 600;
+            transition: background 0.2s;
+        }
+        .faq-q:hover { background: rgba(255,255,255,0.03); }
+        .faq-q i { color: var(--accent); transition: transform 0.3s; font-size: 12px; }
+        .faq-a {
+            display: none; padding: 0 20px 18px;
+            font-size: 14px; color: var(--text-secondary); line-height: 1.75;
+        }
+        .faq-item.open .faq-q { color: var(--accent); background: var(--accent-dim); }
+        .faq-item.open .faq-q i { transform: rotate(180deg); }
+        .faq-item.open .faq-a { display: block; }
+
+        /* ── Use case cards ── */
+        .use-case {
+            display: flex; gap: 20px; align-items: flex-start;
+            background: var(--surface-card); border: 1px solid var(--border);
+            border-radius: var(--radius-lg); padding: 24px; margin-bottom: 14px;
+            transition: all 0.25s;
+        }
+        .use-case:hover { border-color: var(--border-strong); }
+        .use-case-icon {
+            width: 50px; height: 50px; border-radius: 14px; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center; font-size: 22px;
+        }
+        .use-case-body h4 { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+        .use-case-body p  { font-size: 13.5px; color: var(--text-secondary); line-height: 1.7; }
+        .use-case-body .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+        .tag {
+            padding: 3px 10px; border-radius: var(--radius-full); font-size: 11px; font-weight: 600;
+            background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text-muted);
+        }
+
+        /* ── Divider ── */
+        .doc-divider { height: 1px; background: var(--border); margin: 48px 0; }
+
+        /* ── Breadcrumb ── */
+        .breadcrumb {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 13px; color: var(--text-muted); margin-bottom: 32px;
+        }
+        .breadcrumb a { color: var(--text-muted); transition: color 0.2s; }
+        .breadcrumb a:hover { color: var(--accent); }
+        .breadcrumb i { font-size: 10px; }
+
+        /* ── Nav prev/next ── */
+        .doc-nav {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 72px;
+            padding-top: 32px; border-top: 1px solid var(--border);
+        }
+        .doc-nav-btn {
+            background: var(--surface-card); border: 1px solid var(--border);
+            border-radius: var(--radius-lg); padding: 20px 22px;
+            display: flex; align-items: center; gap: 14px;
+            text-decoration: none; transition: all 0.25s; cursor: pointer;
+        }
+        .doc-nav-btn:hover { border-color: var(--accent); background: var(--accent-dim); }
+        .doc-nav-btn.next { flex-direction: row-reverse; text-align: right; }
+        .doc-nav-btn i { font-size: 18px; color: var(--accent); flex-shrink: 0; }
+        .doc-nav-btn .nav-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.07em; }
+        .doc-nav-btn .nav-title { font-size: 14px; font-weight: 700; color: var(--text); margin-top: 3px; }
+
+        /* ── Sidebar mobile overlay ── */
+        .sidebar-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.7); z-index: 49; backdrop-filter: blur(4px);
+        }
+        .sidebar-overlay.active { display: block; }
+
+        /* ══ RESPONSIVE ══ */
+        @media (max-width: 1280px) {
+            :root { --docs-toc-w: 0px; }
+            .docs-toc { display: none; }
+            .docs-layout { grid-template-columns: var(--docs-sidebar-w) 1fr; }
+            .docs-content { max-width: 100%; }
+        }
+        @media (max-width: 900px) {
+            :root { --docs-sidebar-w: 0px; }
+            .docs-sidebar { transform: translateX(-100%); transition: transform 0.3s; width: 280px; }
+            .docs-sidebar.open { transform: translateX(0); }
+            .docs-layout { grid-template-columns: 1fr; }
+            .docs-topbar { padding: 0 16px; }
+            .topbar-brand { min-width: auto; }
+            .topbar-search { display: none; }
+            .docs-hamburger { display: block; }
+            .docs-content { padding: 36px 24px; }
+            .cards-grid { grid-template-columns: 1fr; }
+            .cards-grid-3 { grid-template-columns: repeat(2, 1fr); }
+            .docs-hero { padding: 32px 24px; }
+        }
+        @media (max-width: 600px) {
+            .cards-grid-3 { grid-template-columns: 1fr; }
+            .docs-content { padding: 28px 16px; }
+            .doc-nav { grid-template-columns: 1fr; }
+            .use-case { flex-direction: column; }
+            .plan-table { font-size: 12px; }
+            .plan-table th, .plan-table td { padding: 10px 10px; }
+            input, select, textarea { font-size: 16px; }
+        }
+        @media (max-width: 360px) {
+            .docs-content { padding: 20px 12px; }
+            .docs-hero { padding: 24px 16px; }
+            .step { gap: 14px; }
+            .doc-h1 { font-size: 24px; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ══ TOPBAR ══ -->
+<nav class="docs-topbar">
+    <button class="docs-hamburger" id="docsHamburger" aria-label="Menu">
+        <i class="fas fa-bars"></i>
+    </button>
+    <div class="topbar-brand">
+        <div class="lm">FH</div>
+        <span>FLYHOST</span>
+    </div>
+    <div class="topbar-search" onclick="document.getElementById('docSearch').focus()">
+        <i class="fas fa-search"></i>
+        <span>Rechercher dans la doc…</span>
+        <kbd>⌘K</kbd>
+    </div>
+    <div class="topbar-actions">
+        <a href="/dashboard" class="topbar-btn topbar-btn-ghost">Dashboard</a>
+        <a href="/pricing" class="topbar-btn topbar-btn-accent">Commencer</a>
+    </div>
+</nav>
+
+<!-- ── Sidebar overlay mobile ── -->
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+<!-- ══ SIDEBAR ══ -->
+<aside class="docs-sidebar" id="docsSidebar">
+    <div class="sidebar-logo">
+        <div class="lm">FH</div>
+        <span>Documentation</span>
+    </div>
+
+    <div class="sidebar-section">
+        <div class="sidebar-label">Introduction</div>
+        <a class="sidebar-link active" href="#intro"><i class="fas fa-home"></i> Qu'est-ce que FLYHOST ?</a>
+        <a class="sidebar-link" href="#comment-ca-marche"><i class="fas fa-cogs"></i> Comment ça marche</a>
+        <a class="sidebar-link" href="#coins"><i class="fas fa-coins"></i> Système de coins</a>
+    </div>
+
+    <div class="sidebar-section">
+        <div class="sidebar-label">Démarrage rapide</div>
+        <a class="sidebar-link" href="#creer-compte"><i class="fas fa-user-plus"></i> Créer un compte</a>
+        <a class="sidebar-link" href="#creer-serveur"><i class="fas fa-server"></i> Créer un serveur</a>
+        <a class="sidebar-link" href="#deployer"><i class="fas fa-rocket"></i> Déployer un projet</a>
+    </div>
+
+    <div class="sidebar-section">
+        <div class="sidebar-label">Cas d'usage</div>
+        <a class="sidebar-link" href="#usecases"><i class="fas fa-lightbulb"></i> À quoi servent les serveurs ?</a>
+        <a class="sidebar-link" href="#types-projets"><i class="fas fa-code"></i> Types de projets supportés</a>
+    </div>
+
+    <div class="sidebar-section">
+        <div class="sidebar-label">Plans & Tarifs</div>
+        <a class="sidebar-link" href="#plans"><i class="fas fa-layer-group"></i> Comparatif des plans</a>
+        <a class="sidebar-link" href="#promo"><i class="fas fa-tag"></i> Codes promo & réductions</a>
+    </div>
+
+    <div class="sidebar-section">
+        <div class="sidebar-label">Gestion avancée</div>
+        <a class="sidebar-link" href="#deploy-github"><i class="fab fa-github"></i> Déploiement GitHub</a>
+        <a class="sidebar-link" href="#deploy-zip"><i class="fas fa-file-archive"></i> Déploiement ZIP</a>
+        <a class="sidebar-link" href="#env-auto"><i class="fas fa-magic"></i> Détection auto d'environnement</a>
+    </div>
+
+    <div class="sidebar-section">
+        <div class="sidebar-label">Aide</div>
+        <a class="sidebar-link" href="#faq"><i class="fas fa-question-circle"></i> FAQ</a>
+        <a class="sidebar-link" href="/tickets"><i class="fas fa-headset"></i> Support</a>
+        <a class="sidebar-link" href="/status"><i class="fas fa-circle" style="color:var(--green);font-size:8px"></i> Statut des services</a>
+    </div>
+</aside>
+
+<!-- ══ LAYOUT ══ -->
+<div class="docs-layout">
+    <div><!-- sidebar placeholder --></div>
+
+    <!-- ══ CONTENU ══ -->
+    <main class="docs-content">
+
+        <div class="breadcrumb">
+            <a href="/">Accueil</a>
+            <i class="fas fa-chevron-right"></i>
+            <span>Documentation</span>
+        </div>
+
+        <!-- ═══ INTRO ═══ -->
+        <section id="intro" class="doc-section">
+            <div class="docs-hero">
+                <div class="doc-badge"><i class="fas fa-book-open"></i> Documentation officielle</div>
+                <h1 class="doc-h1">Bienvenue sur <em>FLYHOST</em></h1>
+                <p class="doc-lead">
+                    FLYHOST est une plateforme d'hébergement nouvelle génération qui te permet de déployer, gérer et faire évoluer tes projets web et bots en quelques clics — sans configuration serveur complexe.
+                </p>
+                <div class="cards-grid" style="margin-top:28px">
+                    <div class="doc-card">
+                        <div class="doc-card-icon ic-yellow"><i class="fas fa-bolt"></i></div>
+                        <h4>Déploiement instantané</h4>
+                        <p>Upload un ZIP ou connecte GitHub — ton projet est en ligne en moins de 2 minutes.</p>
+                    </div>
+                    <div class="doc-card">
+                        <div class="doc-card-icon ic-green"><i class="fas fa-magic"></i></div>
+                        <h4>Auto-détection</h4>
+                        <p>FLYHOST détecte automatiquement si ton projet est en Python, Node.js, PHP ou Java.</p>
+                    </div>
+                    <div class="doc-card">
+                        <div class="doc-card-icon ic-blue"><i class="fas fa-coins"></i></div>
+                        <h4>Système de coins</h4>
+                        <p>Paye avec des coins FLYHOST. Gagne-en via le parrainage, les défis et les promotions.</p>
+                    </div>
+                    <div class="doc-card">
+                        <div class="doc-card-icon ic-purple"><i class="fas fa-shield-alt"></i></div>
+                        <h4>Infrastructure fiable</h4>
+                        <p>Propulsé par Pterodactyl — isolation Docker, redémarrage auto, logs en temps réel.</p>
+                    </div>
+                </div>
+            </div>
+
+            <h2 class="doc-h2" id="comment-ca-marche">Comment ça marche ?</h2>
+            <p class="doc-p">FLYHOST fonctionne en 3 étapes simples :</p>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-left"><div class="step-num">1</div><div class="step-line"></div></div>
+                    <div class="step-body">
+                        <h4>Tu crées un compte et obtiens des coins</h4>
+                        <p>Inscris-toi gratuitement. Tu reçois des coins de bienvenue dès la première connexion. Les coins sont la monnaie virtuelle qui permet de louer des serveurs.</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-left"><div class="step-num">2</div><div class="step-line"></div></div>
+                    <div class="step-body">
+                        <h4>Tu crées un serveur depuis le wizard</h4>
+                        <p>Choisis un plan (Free, Starter, Pro, Premium), un type de projet et un nom. Le serveur est créé sur notre infrastructure en quelques secondes.</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-left"><div class="step-num">3</div><div class="step-line"></div></div>
+                    <div class="step-body">
+                        <h4>Tu déploies ton projet</h4>
+                        <p>Connecte ton dépôt GitHub ou upload un fichier ZIP directement depuis l'interface. FLYHOST configure automatiquement l'environnement et démarre ton application.</p>
+                    </div>
+                </div>
+            </div>
+
+            <h2 class="doc-h2" id="coins">Système de coins 🪙</h2>
+            <p class="doc-p">Les <strong>coins FLYHOST</strong> sont la monnaie virtuelle de la plateforme. Ils te permettent de louer des serveurs sans passer par un système de paiement classique à chaque fois.</p>
+            <div class="cards-grid cards-grid-3">
+                <div class="doc-card">
+                    <div class="doc-card-icon ic-yellow"><i class="fas fa-gift"></i></div>
+                    <h4>Bonus inscription</h4>
+                    <p>Coins offerts à la création de ton compte.</p>
+                </div>
+                <div class="doc-card">
+                    <div class="doc-card-icon ic-green"><i class="fas fa-users"></i></div>
+                    <h4>Parrainage</h4>
+                    <p>Gagne des coins pour chaque ami invité qui crée un serveur.</p>
+                </div>
+                <div class="doc-card">
+                    <div class="doc-card-icon ic-blue"><i class="fas fa-trophy"></i></div>
+                    <h4>Défis & challenges</h4>
+                    <p>Participe aux défis hebdomadaires pour gagner des récompenses.</p>
+                </div>
+                <div class="doc-card">
+                    <div class="doc-card-icon ic-orange"><i class="fas fa-credit-card"></i></div>
+                    <h4>Achat direct</h4>
+                    <p>Recharge ton solde via PayPal, carte bancaire ou crypto.</p>
+                </div>
+                <div class="doc-card">
+                    <div class="doc-card-icon ic-purple"><i class="fas fa-tag"></i></div>
+                    <h4>Codes promo</h4>
+                    <p>Utilise des codes promo pour obtenir des serveurs gratuits ou réductions.</p>
+                </div>
+                <div class="doc-card">
+                    <div class="doc-card-icon ic-red"><i class="fas fa-fire"></i></div>
+                    <h4>Promotions flash</h4>
+                    <p>Des événements spéciaux offrent régulièrement des réductions importantes.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ CRÉER UN SERVEUR ═══ -->
+        <section id="creer-serveur" class="doc-section">
+            <div class="doc-badge"><i class="fas fa-server"></i> Guide pas à pas</div>
+            <h1 class="doc-h1">Créer un <em>serveur</em></h1>
+            <p class="doc-lead">
+                Créer un serveur sur FLYHOST prend moins de 60 secondes. Voici le processus complet, étape par étape.
+            </p>
+
+            <h3 class="doc-h3">Avant de commencer</h3>
+            <div class="callout callout-tip">
+                <i class="fas fa-lightbulb"></i>
+                <div>Assure-toi d'avoir suffisamment de coins dans ton solde. Le coût d'un serveur est affiché sur la page de création. Le plan <strong>Free</strong> est toujours gratuit et ne nécessite aucun coin.</div>
+            </div>
+
+            <h3 class="doc-h3">Étapes de création</h3>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-left"><div class="step-num">1</div><div class="step-line"></div></div>
+                    <div class="step-body">
+                        <h4>Ouvre le wizard de déploiement</h4>
+                        <p>Depuis le <a href="/dashboard">Dashboard</a>, clique sur le bouton <code>+ Nouveau serveur</code> ou accède à la page <a href="/deploy">Déploiement</a>. Le wizard s'ouvre automatiquement.</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-left"><div class="step-num">2</div><div class="step-line"></div></div>
+                    <div class="step-body">
+                        <h4>Choisis un serveur hôte</h4>
+                        <p>FLYHOST dispose de plusieurs nœuds d'hébergement géographiquement distribués. Sélectionne le serveur le plus proche de tes utilisateurs pour des performances optimales. Les serveurs affichent en temps réel leur charge CPU et mémoire disponible.</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-left"><div class="step-num">3</div><div class="step-line"></div></div>
+                    <div class="step-body">
+                        <h4>Sélectionne la méthode de déploiement</h4>
+                        <p>Trois méthodes sont disponibles :</p>
+                        <div class="cards-grid" style="margin-top:12px">
+                            <div class="doc-card">
+                                <div class="doc-card-icon ic-blue" style="width:36px;height:36px;font-size:16px;border-radius:9px"><i class="fab fa-github"></i></div>
+                                <h4>GitHub</h4>
+                                <p>Connecte un dépôt GitHub. FLYHOST clone et déploie automatiquement à chaque push.</p>
+                            </div>
+                            <div class="doc-card">
+                                <div class="doc-card-icon ic-orange" style="width:36px;height:36px;font-size:16px;border-radius:9px"><i class="fas fa-file-archive"></i></div>
+                                <h4>Fichier ZIP</h4>
+                                <p>Upload un fichier ZIP de ton projet. Idéal si tu n'utilises pas Git.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-left"><div class="step-num">4</div><div class="step-line"></div></div>
+                    <div class="step-body">
+                        <h4>Sélectionne la technologie (optionnel)</h4>
+                        <p>FLYHOST détecte automatiquement si ton projet est en <strong>Node.js</strong>, <strong>Python</strong>, <strong>PHP</strong>, <strong>Java</strong> ou un <strong>site statique</strong>. Tu peux aussi le spécifier manuellement si besoin.</p>
+                        <div class="callout callout-success" style="margin-top:12px">
+                            <i class="fas fa-check-circle"></i>
+                            <div>La détection automatique analyse les fichiers de ton projet (<code>package.json</code>, <code>requirements.txt</code>, <code>pyproject.toml</code>, etc.) pour choisir le bon environnement d'exécution.</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-left"><div class="step-num">5</div><div class="step-line"></div></div>
+                    <div class="step-body">
+                        <h4>Choisis ton plan</h4>
+                        <p>Sélectionne le plan adapté à ton projet. Les ressources (RAM, CPU, stockage) varient selon le plan choisi. Un aperçu du coût en coins est affiché en temps réel.</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-left"><div class="step-num">6</div><div class="step-line"></div></div>
+                    <div class="step-body">
+                        <h4>Nomme ton serveur et confirme</h4>
+                        <p>Donne un nom à ton serveur (ex: <code>mon-api-backend</code>). Vérifie le récapitulatif, applique un code promo si tu en as un, puis clique sur <strong>Lancer</strong>. Ton serveur est prêt en quelques secondes.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="callout callout-info">
+                <i class="fas fa-info-circle"></i>
+                <div>Après la création, tu seras redirigé vers la page de gestion de ton serveur où tu pourras voir les logs en temps réel, gérer les fichiers, configurer les variables d'environnement et contrôler le démarrage/arrêt.</div>
+            </div>
+        </section>
+
+        <!-- ═══ CAS D'USAGE ═══ -->
+        <section id="usecases" class="doc-section">
+            <div class="doc-badge"><i class="fas fa-lightbulb"></i> Cas d'usage</div>
+            <h1 class="doc-h1">À quoi servent <em>les serveurs</em> ?</h1>
+            <p class="doc-lead">
+                Un serveur FLYHOST est un environnement d'exécution isolé, accessible 24h/24. Voici les usages les plus courants de notre communauté.
+            </p>
+
+            <div class="use-case">
+                <div class="use-case-icon ic-blue"><i class="fab fa-discord"></i></div>
+                <div class="use-case-body">
+                    <h4>Bots Discord & Telegram</h4>
+                    <p>Héberge ton bot en permanence sans avoir besoin de garder ton PC allumé. Ton bot répond 24h/24, 7j/7 même si tu es déconnecté. Supporte Discord.js, discord.py, python-telegram-bot et tous les frameworks populaires.</p>
+                    <div class="tags">
+                        <span class="tag">Node.js</span>
+                        <span class="tag">Python</span>
+                        <span class="tag">Discord.js</span>
+                        <span class="tag">discord.py</span>
+                        <span class="tag">Telebot</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="use-case">
+                <div class="use-case-icon ic-green"><i class="fas fa-globe"></i></div>
+                <div class="use-case-body">
+                    <h4>Sites web & Applications web</h4>
+                    <p>Déploie ton site React, Vue, Next.js, ou un site statique HTML/CSS/JS. Parfait pour des portfolios, landing pages, projets d'école ou petits SaaS. Chaque serveur reçoit une URL publique accessible depuis internet.</p>
+                    <div class="tags">
+                        <span class="tag">React</span>
+                        <span class="tag">Next.js</span>
+                        <span class="tag">Vue</span>
+                        <span class="tag">HTML/CSS</span>
+                        <span class="tag">Static</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="use-case">
+                <div class="use-case-icon ic-yellow"><i class="fas fa-plug"></i></div>
+                <div class="use-case-body">
+                    <h4>APIs & Backends REST/GraphQL</h4>
+                    <p>Héberge ton API Express, FastAPI, Flask, Django ou Spring Boot. Expose tes endpoints REST ou GraphQL à tes applications mobiles, frontend ou services tiers. Idéal pour les projets full-stack où le backend doit tourner indépendamment du frontend.</p>
+                    <div class="tags">
+                        <span class="tag">Express.js</span>
+                        <span class="tag">FastAPI</span>
+                        <span class="tag">Flask</span>
+                        <span class="tag">Django</span>
+                        <span class="tag">Spring Boot</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="use-case">
+                <div class="use-case-icon ic-purple"><i class="fas fa-robot"></i></div>
+                <div class="use-case-body">
+                    <h4>Automatisations & Scripts</h4>
+                    <p>Lance des scripts planifiés (cron jobs), des scrapers web, des automatisations de données ou des pipelines de traitement. Ton script peut tourner en continu ou être déclenché périodiquement selon une logique que tu définis dans ton code.</p>
+                    <div class="tags">
+                        <span class="tag">Cron jobs</span>
+                        <span class="tag">Web scraping</span>
+                        <span class="tag">Automation</span>
+                        <span class="tag">Data pipeline</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="use-case">
+                <div class="use-case-icon ic-orange"><i class="fas fa-gamepad"></i></div>
+                <div class="use-case-body">
+                    <h4>Jeux & Serveurs de jeu</h4>
+                    <p>Héberge un serveur de jeu multijoueur, un moteur de jeu en ligne ou les fonctions temps-réel de ton jeu (WebSockets, rooms, matchmaking). Compatible avec Socket.io et les architectures temps-réel modernes.</p>
+                    <div class="tags">
+                        <span class="tag">WebSocket</span>
+                        <span class="tag">Socket.io</span>
+                        <span class="tag">Multiplayer</span>
+                        <span class="tag">Real-time</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="use-case">
+                <div class="use-case-icon ic-red"><i class="fas fa-graduation-cap"></i></div>
+                <div class="use-case-body">
+                    <h4>Projets scolaires & Portfolio</h4>
+                    <p>Présente ton projet de fin d'études, ton stage ou ton portfolio en ligne. FLYHOST permet de partager une URL live sans frais élevés. Parfait pour montrer ton travail à des recruteurs ou correcteurs avec un vrai lien fonctionnel.</p>
+                    <div class="tags">
+                        <span class="tag">Portfolio</span>
+                        <span class="tag">Projet d'école</span>
+                        <span class="tag">Stage</span>
+                        <span class="tag">Démo</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ TYPES DE PROJETS ═══ -->
+        <section id="types-projets" class="doc-section">
+            <h2 class="doc-h2">Technologies supportées</h2>
+            <p class="doc-p">FLYHOST supporte nativement les principales technologies web et backend. La détection est automatique — il suffit d'uploader ton projet.</p>
+
+            <div class="cards-grid cards-grid-3">
+                <div class="doc-card">
+                    <div class="doc-card-icon ic-green"><i class="fab fa-node-js"></i></div>
+                    <h4>Node.js</h4>
+                    <p>Express, Fastify, NestJS, Discord.js, Socket.io. Détecté via <code>package.json</code>.</p>
+                </div>
+                <div class="doc-card">
+                    <div class="doc-card-icon ic-blue"><i class="fab fa-python"></i></div>
+                    <h4>Python</h4>
+                    <p>Flask, FastAPI, Django, discord.py. Détecté via <code>requirements.txt</code> ou <code>pyproject.toml</code>.</p>
+                </div>
+                <div class="doc-card">
+                    <div class="doc-card-icon ic-purple"><i class="fab fa-php"></i></div>
+                    <h4>PHP</h4>
+                    <p>Laravel, Symfony, WordPress, PHP natif. Détecté via <code>composer.json</code>.</p>
+                </div>
+                <div class="doc-card">
+                    <div class="doc-card-icon ic-orange"><i class="fab fa-java"></i></div>
+                    <h4>Java</h4>
+                    <p>Spring Boot, Maven, Gradle. Détecté via <code>pom.xml</code> ou <code>build.gradle</code>.</p>
+                </div>
+                <div class="doc-card">
+                    <div class="doc-card-icon ic-yellow"><i class="fab fa-html5"></i></div>
+                    <h4>Site statique</h4>
+                    <p>HTML, CSS, JS pur. Servi via Nginx/serve. Parfait pour landing pages et portfolios.</p>
+                </div>
+                <div class="doc-card">
+                    <div class="doc-card-icon ic-red"><i class="fas fa-layer-group"></i></div>
+                    <h4>Projets mixtes</h4>
+                    <p>Backend Python + frontend React : FLYHOST détecte et priorise le backend automatiquement.</p>
+                </div>
+            </div>
+
+            <div class="callout callout-tip">
+                <i class="fas fa-lightbulb"></i>
+                <div>Si FLYHOST détecte la mauvaise technologie, tu peux <strong>forcer manuellement</strong> l'environnement depuis le wizard (étape "Technologie") ou en ajoutant un fichier <code>.flyhost.json</code> à la racine de ton projet avec <code>{"env_type": "python"}</code>.</div>
+            </div>
+        </section>
+
+        <!-- ═══ PLANS ═══ -->
+        <section id="plans" class="doc-section">
+            <div class="doc-badge"><i class="fas fa-layer-group"></i> Plans & Tarifs</div>
+            <h1 class="doc-h1">Comparatif des <em>plans</em></h1>
+            <p class="doc-lead">
+                Choisis le plan adapté à ton projet. Tous les plans incluent une URL publique, des logs en temps réel et un accès au gestionnaire de fichiers.
+            </p>
+
+            <div style="overflow-x:auto">
+            <table class="plan-table">
+                <thead>
+                    <tr>
+                        <th>Plan</th>
+                        <th>RAM</th>
+                        <th>CPU</th>
+                        <th>Stockage</th>
+                        <th>Coût</th>
+                        <th>Pour qui ?</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="plan-name">Free</span> <span class="badge badge-free">Gratuit</span></td>
+                        <td>512 MB</td>
+                        <td>50%</td>
+                        <td>1 GB</td>
+                        <td><strong>0 coins</strong></td>
+                        <td>Tests, bots légers, démos rapides</td>
+                    </tr>
+                    <tr>
+                        <td><span class="plan-name">Starter</span> <span class="badge badge-starter">Starter</span></td>
+                        <td>1 GB</td>
+                        <td>100%</td>
+                        <td>5 GB</td>
+                        <td><strong>150 coins/mois</strong></td>
+                        <td>Bots Discord, petites APIs, portfolios</td>
+                    </tr>
+                    <tr>
+                        <td><span class="plan-name">Pro</span> <span class="badge badge-pro">Pro</span></td>
+                        <td>2 GB</td>
+                        <td>200%</td>
+                        <td>10 GB</td>
+                        <td><strong>300 coins/mois</strong></td>
+                        <td>Applications web, APIs actives, projets scolaires</td>
+                    </tr>
+                    <tr>
+                        <td><span class="plan-name">Premium</span> <span class="badge badge-premium">Premium</span></td>
+                        <td>4 GB</td>
+                        <td>400%</td>
+                        <td>20 GB</td>
+                        <td><strong>600 coins/mois</strong></td>
+                        <td>SaaS, jeux multijoueur, applications critiques</td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+
+            <div class="callout callout-info">
+                <i class="fas fa-info-circle"></i>
+                <div>Les coins sont débités à la création du serveur pour la durée du plan. Si tu supprimes un serveur avant la fin, les coins restants sont <strong>remboursés au prorata</strong> automatiquement.</div>
+            </div>
+        </section>
+
+        <!-- ═══ DÉPLOIEMENT ═══ -->
+        <section id="deploy-github" class="doc-section">
+            <div class="doc-badge"><i class="fab fa-github"></i> Déploiement</div>
+            <h1 class="doc-h1">Déployer depuis <em>GitHub</em></h1>
+            <p class="doc-lead">Le déploiement GitHub est la méthode recommandée pour les projets actifs. Il permet de mettre à jour ton application directement depuis ton dépôt.</p>
+
+            <div class="steps">
+                <div class="step">
+                    <div class="step-left"><div class="step-num">1</div><div class="step-line"></div></div>
+                    <div class="step-body">
+                        <h4>Connecte ton dépôt GitHub</h4>
+                        <p>Dans le wizard, choisis la méthode <strong>GitHub</strong> et colle l'URL de ton dépôt. Pour les dépôts privés, ajoute un <strong>token d'accès GitHub</strong> (Personal Access Token avec permission <code>repo</code>).</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-left"><div class="step-num">2</div><div class="step-line"></div></div>
+                    <div class="step-body">
+                        <h4>Choisis la branche</h4>
+                        <p>Spécifie la branche à déployer (<code>main</code>, <code>master</code>, <code>production</code>…). FLYHOST clonera toujours la dernière version de cette branche.</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-left"><div class="step-num">3</div><div class="step-line"></div></div>
+                    <div class="step-body">
+                        <h4>Ajoute tes variables d'environnement</h4>
+                        <p>Définis tes <code>API_KEY</code>, <code>DATABASE_URL</code>, <code>SECRET</code> etc. directement dans l'interface. Elles seront injectées dans l'environnement de ton application sans être exposées dans ton code.</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-left"><div class="step-num">4</div><div class="step-line"></div></div>
+                    <div class="step-body">
+                        <h4>Lance le déploiement</h4>
+                        <p>Clique sur <strong>Déployer</strong>. FLYHOST clone le repo, détecte la technologie, installe les dépendances et démarre l'application. Tu vois les logs en temps réel.</p>
+                    </div>
+                </div>
+            </div>
+
+            <h2 class="doc-h2" id="deploy-zip">Déployer via fichier ZIP</h2>
+            <p class="doc-p">Si tu n'utilises pas Git ou que tu veux uploader un build compilé, le déploiement ZIP est parfait.</p>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-left"><div class="step-num">1</div><div class="step-line"></div></div>
+                    <div class="step-body">
+                        <h4>Prépare ton ZIP</h4>
+                        <p>Crée un fichier ZIP avec tous les fichiers de ton projet à la racine (pas dans un sous-dossier). Inclus <code>package.json</code>, <code>requirements.txt</code> ou l'équivalent selon ta techno — FLYHOST s'occupe de l'installation.</p>
+                        <div class="code-block">
+<span class="comment"># Structure recommandée dans le ZIP</span>
+<span class="key">mon-projet.zip</span>
+├── <span class="string">index.js</span>          <span class="comment"># (ou app.py, index.php...)</span>
+├── <span class="string">package.json</span>
+├── <span class="string">.env.example</span>      <span class="comment"># Variables d'env exemples</span>
+└── <span class="string">src/</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-left"><div class="step-num">2</div><div class="step-line"></div></div>
+                    <div class="step-body">
+                        <h4>Upload et déploie</h4>
+                        <p>Dans le wizard, sélectionne <strong>Fichier ZIP</strong>, glisse ton fichier dans la zone d'upload. Le déploiement commence automatiquement. Taille maximale : <code>100 MB</code>.</p>
+                    </div>
+                </div>
+            </div>
+
+            <h2 class="doc-h2" id="env-auto">Détection automatique d'environnement</h2>
+            <p class="doc-p">FLYHOST analyse les fichiers de ton projet pour configurer automatiquement le bon runtime Docker, installer les dépendances et définir la commande de démarrage.</p>
+            <div style="overflow-x:auto">
+            <table class="plan-table">
+                <thead>
+                    <tr><th>Fichier détecté</th><th>Technologie</th><th>Commande auto</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>package.json</code></td><td>Node.js</td><td><code>npm install && npm start</code></td></tr>
+                    <tr><td><code>requirements.txt</code></td><td>Python</td><td><code>pip install -r requirements.txt && python app.py</code></td></tr>
+                    <tr><td><code>pyproject.toml</code></td><td>Python (Poetry)</td><td><code>pip install . && python main.py</code></td></tr>
+                    <tr><td><code>composer.json</code></td><td>PHP</td><td><code>composer install && php -S 0.0.0.0:$PORT</code></td></tr>
+                    <tr><td><code>pom.xml</code></td><td>Java (Maven)</td><td><code>mvn package && java -jar target/*.jar</code></td></tr>
+                    <tr><td><code>index.html</code> uniquement</td><td>Site statique</td><td><code>npx serve . -p $PORT</code></td></tr>
+                </tbody>
+            </table>
+            </div>
+
+            <div class="callout callout-warn">
+                <i class="fas fa-exclamation-triangle"></i>
+                <div>Si ton projet a une structure non-standard (ex: entry point dans un sous-dossier), crée un fichier <code>.flyhost.json</code> à la racine pour spécifier manuellement : <code>{"env_type": "python", "start": "python backend/server.py"}</code></div>
+            </div>
+        </section>
+
+        <!-- ═══ FAQ ═══ -->
+        <section id="faq" class="doc-section">
+            <div class="doc-badge"><i class="fas fa-question-circle"></i> FAQ</div>
+            <h1 class="doc-h1">Questions <em>fréquentes</em></h1>
+
+            <div class="faq-item">
+                <div class="faq-q" onclick="toggleFaq(this)">
+                    <span>Puis-je héberger plusieurs serveurs simultanément ?</span>
+                    <i class="fas fa-chevron-down"></i>
+                </div>
+                <div class="faq-a">Oui, il n'y a pas de limite au nombre de serveurs. Chaque serveur consomme des coins selon son plan. Tu peux mixer des serveurs Free, Starter et Premium sur le même compte.</div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-q" onclick="toggleFaq(this)">
+                    <span>Que se passe-t-il si mon solde de coins est à zéro ?</span>
+                    <i class="fas fa-chevron-down"></i>
+                </div>
+                <div class="faq-a">Les serveurs payants peuvent être suspendus si le solde est insuffisant pour le renouvellement. Les serveurs Free ne sont pas affectés. Tu recevras une notification avant toute suspension. Recharge ton solde pour réactiver tes serveurs.</div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-q" onclick="toggleFaq(this)">
+                    <span>Mon bot/application peut-il accéder à internet ?</span>
+                    <i class="fas fa-chevron-down"></i>
+                </div>
+                <div class="faq-a">Oui, les serveurs FLYHOST ont un accès complet à internet en sortie. Ton application peut appeler des APIs externes, envoyer des emails, se connecter à des bases de données cloud, etc.</div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-q" onclick="toggleFaq(this)">
+                    <span>Comment ajouter un nom de domaine personnalisé ?</span>
+                    <i class="fas fa-chevron-down"></i>
+                </div>
+                <div class="faq-a">Chaque serveur reçoit une URL FLYHOST par défaut. Pour un domaine personnalisé, configure un reverse proxy (Cloudflare, Nginx) qui pointe vers l'IP et le port de ton serveur, disponibles dans la page de gestion.</div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-q" onclick="toggleFaq(this)">
+                    <span>Puis-je utiliser une base de données ?</span>
+                    <i class="fas fa-chevron-down"></i>
+                </div>
+                <div class="faq-a">Tu peux utiliser des bases de données cloud externes (MongoDB Atlas, PlanetScale, Supabase, etc.) via des variables d'environnement. SQLite et fichiers JSON locaux fonctionnent également mais sont réinitialisés lors d'une réinstallation du serveur.</div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-q" onclick="toggleFaq(this)">
+                    <span>Comment voir les logs de mon application ?</span>
+                    <i class="fas fa-chevron-down"></i>
+                </div>
+                <div class="faq-a">Accède à la page de ton serveur depuis le Dashboard. L'onglet <strong>Console</strong> affiche les logs en temps réel via WebSocket. Tu peux aussi y exécuter des commandes directement dans le conteneur.</div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-q" onclick="toggleFaq(this)">
+                    <span>Comment fonctionne le redémarrage automatique ?</span>
+                    <i class="fas fa-chevron-down"></i>
+                </div>
+                <div class="faq-a">Si ton application crash (exit code non-zéro), Pterodactyl la redémarre automatiquement selon la politique configurée. Tu peux voir le nombre de redémarrages dans les statistiques de ton serveur.</div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-q" onclick="toggleFaq(this)">
+                    <span>Mes données sont-elles sauvegardées ?</span>
+                    <i class="fas fa-chevron-down"></i>
+                </div>
+                <div class="faq-a">FLYHOST propose un système de snapshots/backups accessible depuis la page de gestion du serveur. Les plans Pro et Premium bénéficient de sauvegardes automatiques quotidiennes.</div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-q" onclick="toggleFaq(this)">
+                    <span>Comment contacter le support ?</span>
+                    <i class="fas fa-chevron-down"></i>
+                </div>
+                <div class="faq-a">Ouvre un ticket depuis la page <a href="/tickets" style="color:var(--accent)">Support</a>. Le temps de réponse moyen est de moins de 2 heures. Pour les urgences, rejoins notre serveur Discord communautaire.</div>
+            </div>
+        </section>
+
+        <!-- ══ Navigation prev/next ══ -->
+        <div class="doc-nav">
+            <a href="/pricing" class="doc-nav-btn">
+                <i class="fas fa-arrow-left"></i>
+                <div><div class="nav-label">Page suivante</div><div class="nav-title">Plans & Tarifs</div></div>
+            </a>
+            <a href="/deploy" class="doc-nav-btn next">
+                <i class="fas fa-arrow-right"></i>
+                <div><div class="nav-label">Commencer</div><div class="nav-title">Créer un serveur</div></div>
+            </a>
+        </div>
+
+    </main>
+
+    <!-- ══ TOC droite ══ -->
+    <aside class="docs-toc" id="docsToc">
+        <div class="toc-title">Sur cette page</div>
+        <a class="toc-link" href="#intro">Qu'est-ce que FLYHOST ?</a>
+        <a class="toc-link sub" href="#comment-ca-marche">Comment ça marche</a>
+        <a class="toc-link sub" href="#coins">Système de coins</a>
+        <a class="toc-link" href="#creer-serveur">Créer un serveur</a>
+        <a class="toc-link" href="#usecases">Cas d'usage</a>
+        <a class="toc-link sub" href="#types-projets">Technologies</a>
+        <a class="toc-link" href="#plans">Plans & Tarifs</a>
+        <a class="toc-link" href="#deploy-github">Déploiement GitHub</a>
+        <a class="toc-link sub" href="#deploy-zip">Déploiement ZIP</a>
+        <a class="toc-link sub" href="#env-auto">Détection auto</a>
+        <a class="toc-link" href="#faq">FAQ</a>
+    </aside>
+</div>
+
+<script>
+    // ── Hamburger ──
+    function openSidebar() {
+        document.getElementById('docsSidebar').classList.add('open');
+        document.getElementById('sidebarOverlay').classList.add('active');
+    }
+    function closeSidebar() {
+        document.getElementById('docsSidebar').classList.remove('open');
+        document.getElementById('sidebarOverlay').classList.remove('active');
+    }
+    document.getElementById('docsHamburger').addEventListener('click', openSidebar);
+
+    // ── FAQ toggle ──
+    function toggleFaq(el) {
+        const item = el.parentElement;
+        const wasOpen = item.classList.contains('open');
+        document.querySelectorAll('.faq-item').forEach(i => i.classList.remove('open'));
+        if (!wasOpen) item.classList.add('open');
+    }
+
+    // ── Active sidebar link on scroll ──
+    const sections = document.querySelectorAll('.doc-section, [id]');
+    const links = document.querySelectorAll('.sidebar-link');
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const id = '#' + entry.target.id;
+                links.forEach(l => {
+                    l.classList.toggle('active', l.getAttribute('href') === id);
+                });
+            }
+        });
+    }, { rootMargin: '-64px 0px -70% 0px' });
+    document.querySelectorAll('[id]').forEach(el => observer.observe(el));
+
+    // ── Smooth scroll ──
+    document.querySelectorAll('a[href^="#"]').forEach(a => {
+        a.addEventListener('click', e => {
+            e.preventDefault();
+            const target = document.querySelector(a.getAttribute('href'));
+            if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            if (window.innerWidth < 900) closeSidebar();
+        });
+    });
+</script>
+
+<script src="/notifications.js"></script>
+</body>
+</html>

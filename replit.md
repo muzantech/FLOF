@@ -22,67 +22,132 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 FlyHost is a full-stack hosting platform (Vercel clone) with:
 - User authentication (JWT, bcrypt)
 - Project management
-- Simulated deployments (with build logs)
+- Simulated deployments (with live build logs)
 - Custom domain management
 - Environment variables per project
 - Team management with member invites
 - Dashboard with statistics
+- **Coins economy** (10 on signup, daily login, referrals, subscription bonuses)
+- **Subscription plans** (Starter/Pro/Business — paid in coins)
+- **Referral program** (+50 coins per referral, +25 for referred user)
+- **Admin/Reseller panel** with pack purchasing
+- **Status page** with service uptime/incidents
+- **Documentation** with sidebar navigation
+- **Onboarding wizard** (3-step)
+- **Profile page** with stats, security, API key, referral
+- **Invoices & History** transaction tracking
+
+## Frontend Pages
+
+All new pages use `FlyLayout` (dark theme: #09090B, yellow accent: #FACC15, hamburger drawer nav)
+
+- `/` — Landing
+- `/login` `/register` — Auth
+- `/onboarding` — 3-step wizard
+- `/dashboard` — Project stats
+- `/projects` `/projects/:id` — Project management
+- `/deploy` — New deployment wizard (GitHub/ZIP/Template, env vars, live logs)
+- `/teams` — Team management
+- `/settings` — User settings
+- `/profile` — Profile editor, security, API key, referral, stats
+- `/subscription` — Plan cards, comparison table, FAQ
+- `/referral` — Share code, apply code, list filleuls
+- `/invoices` — Transaction receipts
+- `/history` — Timeline of all coin movements
+- `/admin` — Reseller dashboard (packs, clients, stats)
+- `/status` — Service uptime monitoring (public)
+- `/docs` — Documentation with sidebar (public)
 
 ## Structure
 
 ```text
 artifacts-monorepo/
 ├── artifacts/
-│   ├── api-server/         # Express API server (auth, projects, deployments, domains, teams, stats)
-│   └── flyhost/            # React + Vite frontend (Vercel clone UI)
+│   ├── api-server/         # Express API server
+│   └── flyhost/            # React + Vite frontend
+│       └── src/
+│           ├── components/
+│           │   ├── fly-layout.tsx      # Shared FlyHost layout (topbar + drawer)
+│           │   └── layout.tsx          # Original AppLayout
+│           └── pages/                  # All pages
 ├── lib/
-│   ├── api-spec/           # OpenAPI spec + Orval codegen config
+│   ├── api-spec/           # OpenAPI spec
 │   ├── api-client-react/   # Generated React Query hooks
-│   ├── api-zod/            # Generated Zod schemas from OpenAPI
-│   └── db/                 # Drizzle ORM schema + DB connection
-├── scripts/                # Utility scripts
-├── pnpm-workspace.yaml
-├── tsconfig.base.json
-├── tsconfig.json
-└── package.json
+│   ├── api-zod/            # Generated Zod schemas
+│   └── db/                 # Drizzle ORM schema
 ```
 
 ## Database Schema
 
-- `users` - User accounts (id, name, email, username, passwordHash, avatarUrl)
-- `teams` - Teams (id, name, slug, avatarUrl, ownerId)
-- `team_members` - Team membership (teamId, userId, role)
-- `projects` - Projects (id, name, slug, framework, gitRepo, userId, teamId, status, latestDeployment*)
-- `deployments` - Deployments (id, projectId, status, url, commit, branch, isProduction)
-- `deployment_logs` - Build logs (deploymentId, level, message, timestamp)
-- `domains` - Custom domains (projectId, name, verified, primary)
-- `env_vars` - Environment variables (projectId, key, value, environment)
+- `users` — id, name, email, username, passwordHash, avatarUrl, **role**, **coins**, **referralCode**, **referredBy**, **onboardingDone**, **bio**, createdAt
+- `teams` — id, name, slug, avatarUrl, ownerId
+- `team_members` — teamId, userId, role
+- `projects` — id, name, slug, framework, gitRepo, userId, teamId, status
+- `deployments` — id, projectId, status, url, commit, branch, isProduction
+- `deployment_logs` — deploymentId, level, message, timestamp
+- `domains` — projectId, name, verified, primary
+- `env_vars` — projectId, key, value, environment
+- **`subscriptions`** — userId, planName, pricePerMonth, bonusCoins, isActive, startedAt, nextBillingAt, cancelledAt
+- **`coin_transactions`** — userId, type (credit/debit), category, amount, description, reference, createdAt
+- **`referrals`** — referrerId, referredId, rewardCoins, createdAt
 
 ## API Routes
 
-- `POST /api/auth/register` - Register
-- `POST /api/auth/login` - Login
-- `GET/PATCH /api/auth/me` - Current user
-- `GET/POST /api/projects` - List/create projects
-- `GET/PATCH/DELETE /api/projects/:id` - Project CRUD
-- `GET/POST /api/projects/:id/deployments` - Deployments
-- `GET/POST /api/deployments/:id` - Deployment details
-- `POST /api/deployments/:id/cancel` - Cancel
-- `POST /api/deployments/:id/promote` - Promote to production
-- `GET /api/deployments/:id/logs` - Build logs
-- `GET/POST /api/projects/:id/domains` - Domains
-- `DELETE/POST /api/domains/:id` - Remove/verify domain
-- `GET/POST /api/projects/:id/env` - Env vars
-- `DELETE /api/projects/:id/env/:id` - Delete env var
-- `GET/POST /api/teams` - Teams
-- `GET/POST /api/teams/:id/members` - Team members
-- `GET /api/stats` - Dashboard stats
+### Auth
+- `POST /api/auth/register` — Register (gives +10 coins)
+- `POST /api/auth/login` — Login
+- `GET/PATCH /api/auth/me` — Current user
+- `POST /api/complete-onboarding` — Mark onboarding done
+
+### Projects & Deployments
+- `GET/POST /api/projects` — List/create
+- `GET/PATCH/DELETE /api/projects/:id` — CRUD
+- `GET/POST /api/projects/:id/deployments` — Deployments
+- `GET /api/deployments/:id` `/logs` `/cancel` `/promote`
+
+### Domains & Env
+- `GET/POST /api/projects/:id/domains`
+- `GET/POST /api/projects/:id/env`
+
+### Teams
+- `GET/POST /api/teams` + `/members`
+
+### Stats
+- `GET /api/stats`
+
+### User Profile (new)
+- `GET /api/user/profile` — Full profile + sub + referral count
+- `PATCH /api/user/profile` — Update name/bio/avatarUrl
+- `GET /api/user/coins` — Coin balance
+- `GET /api/user/history` — All coin transactions
+- `GET /api/user/invoices` — Invoice list
+
+### Subscriptions (new)
+- `GET /api/subscriptions/me` — Active subscription
+- `POST /api/subscriptions/subscribe` — Subscribe to plan (deducts coins + gives bonus)
+- `POST /api/subscriptions/cancel` — Cancel subscription
+
+### Referrals (new)
+- `GET /api/referrals/my` — My code + list of referrals
+- `POST /api/referrals/apply` — Apply a referral code
+
+## Coins Economy
+
+- **Plans**: Starter (500 coins/mo, +100 bonus), Pro (1500/mo, +350 bonus), Business (4000/mo, +1000 bonus)
+- **Referral**: +50 to referrer, +25 to referred
+- **Signup**: +10 coins
+
+## Design System
+
+- Background: `#09090B`
+- Accent: `#FACC15` (yellow)
+- Surface: `rgba(28,28,35,0.97)`
+- Text: `#FAFAFA`
+- Border: `rgba(250,204,21,0.14)`
+- Font: Plus Jakarta Sans / Inter
+- Animated orb backgrounds (yellow + orange blur)
+- FlyLayout component uses inline CSS styles (not Tailwind)
 
 ## TypeScript & Composite Projects
 
 Every package extends `tsconfig.base.json` which sets `composite: true`. The root `tsconfig.json` lists all packages as project references.
-
-## Root Scripts
-
-- `pnpm run build` — runs `typecheck` first, then recursively runs `build` in all packages that define it
-- `pnpm run typecheck` — runs `tsc --build --emitDeclarationOnly` using project references
