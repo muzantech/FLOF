@@ -4,7 +4,7 @@
  * Features: real-time SSE logs, snapshots, rollback, tech auto-detection
  */
 import { Router, type Response } from "express";
-import { requireAuth, type AuthRequest } from "../middlewares/auth";
+import { requireAuth, requireAuthFlexible, type AuthRequest } from "../middlewares/auth";
 import { db, deploymentsTable, deploymentLogsTable } from "@workspace/db";
 import { eq, lt, and } from "drizzle-orm";
 import multer from "multer";
@@ -16,6 +16,8 @@ import os from "os";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { uploadZipToPterodactyl, sendPowerAction, writeFileContents } from "../pterodactyl";
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 const execFileAsync = promisify(execFile);
 const router: Router = Router();
@@ -59,7 +61,7 @@ async function logDeploy(deploymentId: number, level: "info" | "warn" | "error" 
 }
 
 // SSE endpoint for real-time deploy logs
-router.get("/servers/:identifier/deploy/sse", requireAuth, (req: AuthRequest, res) => {
+router.get("/servers/:identifier/deploy/sse", requireAuthFlexible, (req: AuthRequest, res) => {
   const deploymentId = parseInt(req.query.deploymentId as string, 10);
   if (!deploymentId) { res.status(400).end(); return; }
 
@@ -275,8 +277,17 @@ async function runDeploy(
     const deployZip = await buildZipFromDir(srcDir);
     await logDeploy(deploymentId, "info", `ZIP créé : ${Math.round(deployZip.length / 1024)} Ko`);
 
+    // Stop server before upload (required for Wings file operations)
+    await logDeploy(deploymentId, "info", `Arrêt du serveur pour le déploiement...`);
+    try {
+      await sendPowerAction(identifier, "stop");
+      await sleep(4000);
+    } catch {
+      // Already stopped — continue
+    }
+
     // Upload to Pterodactyl
-    await logDeploy(deploymentId, "info", `Envoi vers le serveur Pterodactyl...`);
+    await logDeploy(deploymentId, "info", `Envoi des fichiers vers Pterodactyl...`);
     await uploadZipToPterodactyl(identifier, deployZip);
     await logDeploy(deploymentId, "info", `Fichiers déployés sur le serveur`);
 
@@ -286,14 +297,15 @@ async function runDeploy(
       await writeFileContents(identifier, "/home/container/.flyhost-start", startCmd);
     }
 
-    // Restart server
-    await logDeploy(deploymentId, "info", `Redémarrage du serveur...`);
+    // Start server
+    await logDeploy(deploymentId, "info", `Démarrage du serveur...`);
     try {
-      await sendPowerAction(identifier, "restart");
-    } catch {
       await sendPowerAction(identifier, "start");
+    } catch {
+      await sleep(2000);
+      try { await sendPowerAction(identifier, "start"); } catch { /* ignore */ }
     }
-    await logDeploy(deploymentId, "info", `Serveur redémarré avec succès`);
+    await logDeploy(deploymentId, "info", `Serveur démarré avec succès`);
 
     const duration = Math.round((Date.now() - start) / 1000);
     await logDeploy(deploymentId, "success", `Déploiement terminé en ${duration}s !`);

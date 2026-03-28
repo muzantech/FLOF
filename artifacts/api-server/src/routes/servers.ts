@@ -23,6 +23,8 @@ import {
   deleteServerFiles,
   getServerStats,
   testClientKey,
+  getServerStartup,
+  updateStartupVariable,
 } from "../pterodactyl";
 
 const router: IRouter = Router();
@@ -511,6 +513,28 @@ router.put("/servers/:id/custom-domain", requireAuth, async (req: AuthRequest, r
       res.status(400).json({ error: "Domaine invalide" }); return;
     }
     res.json({ success: true, domain });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/servers/:identifier/startup — get startup variables
+router.get("/servers/:identifier/startup", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const data = await getServerStartup(req.params.identifier);
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/servers/:identifier/startup/variable — update a startup variable
+router.put("/servers/:identifier/startup/variable", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const { key, value } = req.body;
+    if (!key) { res.status(400).json({ error: "key requis" }); return; }
+    const data = await updateStartupVariable(req.params.identifier, key, value ?? "");
+    res.json(data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

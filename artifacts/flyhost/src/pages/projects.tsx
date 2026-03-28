@@ -10,7 +10,7 @@ import { ProjectStatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { 
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -64,16 +64,16 @@ export default function ProjectsPage() {
       setIsDialogOpen(false);
       form.reset();
     } catch (error: any) {
-      toast({ 
-        variant: "destructive", 
-        title: "Failed to create", 
-        description: error.message || "An error occurred" 
+      toast({
+        variant: "destructive",
+        title: "Failed to create",
+        description: error.message || "An error occurred",
       });
     }
   };
 
-  const filteredProjects = projects?.filter(p => 
-    p.name.toLowerCase().includes(search.toLowerCase()) || 
+  const filteredProjects = projects?.filter(p =>
+    p.name.toLowerCase().includes(search.toLowerCase()) ||
     p.slug.toLowerCase().includes(search.toLowerCase())
   ) || [];
 
@@ -82,7 +82,7 @@ export default function ProjectsPage() {
       <div className="max-w-6xl mx-auto space-y-8">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <h1 className="text-3xl font-display font-bold">Projects</h1>
-          
+
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button className="bg-white text-black hover:bg-gray-200">
@@ -160,18 +160,16 @@ export default function ProjectsPage() {
           </Dialog>
         </div>
 
-        {/* Search */}
         <div className="relative max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input 
-            placeholder="Search projects..." 
+          <Input
+            placeholder="Search projects..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-10 bg-secondary/30 border-border/50 h-10"
           />
         </div>
 
-        {/* List */}
         {isLoading ? (
           <div className="space-y-4">
             {[1, 2, 3].map(i => (
@@ -186,58 +184,58 @@ export default function ProjectsPage() {
                 onClick={() => navigate(`/projects/${project.id}`)}
                 className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-6 rounded-xl border border-border bg-card/40 hover:bg-card hover:border-white/10 transition-all cursor-pointer"
               >
-                  <div className="flex items-center gap-4 mb-4 sm:mb-0">
-                    <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center border border-border text-lg font-bold text-white shrink-0">
-                      {project.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-lg group-hover:text-primary transition-colors flex items-center gap-2">
-                        {project.name}
-                        <ProjectStatusBadge status={project.status} />
-                      </h3>
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-1 text-sm text-muted-foreground">
-                        <span>{project.slug}.flyhost.app</span>
-                        {project.gitRepo && (
-                          <span className="flex items-center gap-1">
-                            <Github className="w-3 h-3" /> {project.gitRepo}
-                          </span>
-                        )}
-                        {project.framework && (
-                          <span className="px-2 py-0.5 rounded bg-secondary/50 text-xs">
-                            {project.framework}
-                          </span>
-                        )}
-                      </div>
+                <div className="flex items-center gap-4 mb-4 sm:mb-0">
+                  <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center border border-border text-lg font-bold text-white shrink-0">
+                    {project.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-lg group-hover:text-primary transition-colors flex items-center gap-2">
+                      {project.name}
+                      <ProjectStatusBadge status={project.status} />
+                    </h3>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-1 text-sm text-muted-foreground">
+                      <span>{project.slug}.flyhost.app</span>
+                      {project.gitRepo && (
+                        <span className="flex items-center gap-1">
+                          <Github className="w-3 h-3" /> {project.gitRepo}
+                        </span>
+                      )}
+                      {project.framework && (
+                        <span className="px-2 py-0.5 rounded bg-secondary/50 text-xs">
+                          {project.framework}
+                        </span>
+                      )}
                     </div>
                   </div>
-                  
-                  <div className="flex items-center gap-6 text-sm">
-                    <div className="text-right hidden md:block">
-                      <div className="flex items-center justify-end gap-2 text-muted-foreground mb-1">
-                        <span className={`w-2 h-2 rounded-full ${
-                          project.latestDeploymentStatus === 'ready' ? 'bg-emerald-500' :
-                          project.latestDeploymentStatus === 'building' ? 'bg-amber-500 animate-pulse' :
-                          project.latestDeploymentStatus === 'error' ? 'bg-red-500' : 'bg-gray-500'
-                        }`}></span>
-                        <span className="capitalize">{project.latestDeploymentStatus || 'No deployments'}</span>
-                      </div>
-                      <span className="text-xs text-muted-foreground/70">
-                        {formatDistanceToNow(new Date(project.updatedAt), { addSuffix: true })}
-                      </span>
+                </div>
+
+                <div className="flex items-center gap-6 text-sm">
+                  <div className="text-right hidden md:block">
+                    <div className="flex items-center justify-end gap-2 text-muted-foreground mb-1">
+                      <span className={`w-2 h-2 rounded-full ${
+                        project.latestDeploymentStatus === "ready" ? "bg-emerald-500" :
+                        project.latestDeploymentStatus === "building" ? "bg-amber-500 animate-pulse" :
+                        project.latestDeploymentStatus === "error" ? "bg-red-500" : "bg-gray-500"
+                      }`} />
+                      <span className="capitalize">{project.latestDeploymentStatus || "No deployments"}</span>
                     </div>
-                    
-                    {project.latestDeploymentUrl && (
-                      <a 
-                        href={project.latestDeploymentUrl} 
-                        target="_blank" 
-                        rel="noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="p-2 rounded-md hover:bg-secondary transition-colors text-muted-foreground hover:text-white shrink-0"
-                      >
-                        <ExternalLink className="w-5 h-5" />
-                      </a>
-                    )}
+                    <span className="text-xs text-muted-foreground/70">
+                      {formatDistanceToNow(new Date(project.updatedAt), { addSuffix: true })}
+                    </span>
                   </div>
+
+                  {project.latestDeploymentUrl && (
+                    <a
+                      href={project.latestDeploymentUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="p-2 rounded-md hover:bg-secondary transition-colors text-muted-foreground hover:text-white shrink-0"
+                    >
+                      <ExternalLink className="w-5 h-5" />
+                    </a>
+                  )}
+                </div>
               </div>
             ))}
           </div>

@@ -719,6 +719,156 @@ function FilesPanel({ identifier }: { identifier: string }) {
   );
 }
 
+// ── Startup panel ────────────────────────
+function StartupPanel({ identifier }: { identifier: string }) {
+  const [startupData, setStartupData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const { toast } = useToast();
+
+  async function loadStartup() {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/servers/${identifier}/startup`);
+      if (res.ok) {
+        const data = await res.json();
+        setStartupData(data);
+        const vals: Record<string, string> = {};
+        (data.data || []).forEach((v: any) => {
+          vals[v.attributes.env_variable] = v.attributes.server_value ?? v.attributes.default_value ?? "";
+        });
+        setEditValues(vals);
+      } else {
+        toast({ variant: "destructive", title: "Erreur chargement startup" });
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Erreur", description: e.message });
+    }
+    setLoading(false);
+  }
+
+  async function saveVariable(key: string) {
+    setSaving(key);
+    try {
+      const res = await fetch(`/api/servers/${identifier}/startup/variable`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, value: editValues[key] ?? "" }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        toast({ title: `Variable "${key}" mise à jour ✓` });
+        await loadStartup();
+      } else {
+        toast({ variant: "destructive", title: "Erreur", description: d.error });
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Erreur", description: e.message });
+    }
+    setSaving(null);
+  }
+
+  useEffect(() => { loadStartup(); }, [identifier]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-zinc-600 gap-2 text-sm">
+        <Loader2 className="w-4 h-4 animate-spin" /> Chargement des variables de démarrage…
+      </div>
+    );
+  }
+
+  const variables = startupData?.data || [];
+  const startupCommand = startupData?.meta?.startup_command || startupData?.attributes?.command || "";
+  const rawStartup = startupData?.meta?.raw_startup_command || "";
+
+  return (
+    <div className="space-y-5 overflow-y-auto h-full pb-4">
+      {/* Startup command display */}
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+        <h3 className="text-base font-semibold text-white mb-1 flex items-center gap-2">
+          <Play className="w-4 h-4 text-yellow-400" /> Commande de démarrage
+        </h3>
+        <p className="text-xs text-zinc-500 mb-3">Commande utilisée pour démarrer ce serveur</p>
+        {startupCommand && (
+          <div className="rounded-lg bg-black border border-zinc-800 p-3 font-mono text-xs text-zinc-300 break-all mb-2">
+            {startupCommand}
+          </div>
+        )}
+        {rawStartup && rawStartup !== startupCommand && (
+          <div className="text-xs text-zinc-600">
+            <span className="text-zinc-500">Template : </span>
+            <span className="font-mono">{rawStartup}</span>
+          </div>
+        )}
+        {!startupCommand && (
+          <p className="text-xs text-zinc-600 italic">Commande non disponible</p>
+        )}
+      </div>
+
+      {/* Variables */}
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-semibold text-white flex items-center gap-2">
+            <Settings className="w-4 h-4 text-yellow-400" /> Variables de démarrage
+            <span className="text-xs font-normal text-zinc-600">({variables.length})</span>
+          </h3>
+          <Button size="sm" variant="ghost" className="h-7 text-xs text-zinc-500 gap-1" onClick={loadStartup}>
+            <RefreshCw className="w-3 h-3" /> Rafraîchir
+          </Button>
+        </div>
+
+        {variables.length === 0 ? (
+          <p className="text-sm text-zinc-600 text-center py-8">Aucune variable de démarrage configurée</p>
+        ) : (
+          <div className="space-y-4">
+            {variables.map((v: any) => {
+              const attr = v.attributes;
+              const key = attr.env_variable;
+              const isEditable = attr.user_editable;
+              return (
+                <div key={key} className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">{attr.name || key}</label>
+                    {!isEditable && (
+                      <span className="text-xs text-zinc-700 border border-zinc-800 rounded px-1.5 py-0.5">Lecture seule</span>
+                    )}
+                  </div>
+                  {attr.description && (
+                    <p className="text-xs text-zinc-600">{attr.description}</p>
+                  )}
+                  <div className="flex gap-2">
+                    <Input
+                      className="flex-1 bg-zinc-900 border-zinc-700 font-mono text-sm h-9"
+                      value={editValues[key] ?? ""}
+                      onChange={e => setEditValues(prev => ({ ...prev, [key]: e.target.value }))}
+                      disabled={!isEditable}
+                      placeholder={attr.default_value || ""}
+                    />
+                    {isEditable && (
+                      <Button
+                        size="sm"
+                        className="h-9 px-3 bg-yellow-400 text-black hover:bg-yellow-300 font-semibold gap-1"
+                        onClick={() => saveVariable(key)}
+                        disabled={saving === key}
+                      >
+                        {saving === key ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                        Sauver
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-zinc-700 font-mono">ENV: {key}</p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Deploy panel ──────────────────────────
 function DeployPanel({ identifier, serverName }: { identifier: string; serverName: string }) {
   const [gitUrl, setGitUrl] = useState("");
@@ -836,7 +986,7 @@ export default function ServerDetailPage() {
   const [server, setServer] = useState<ServerInfo | null>(null);
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"console" | "files" | "deploy" | "settings">("console");
+  const [activeTab, setActiveTab] = useState<"console" | "files" | "deploy" | "startup" | "settings">("console");
   const [powerLoading, setPowerLoading] = useState(false);
   const [deletingServer, setDeletingServer] = useState(false);
   const { toast } = useToast();
@@ -926,6 +1076,7 @@ export default function ServerDetailPage() {
     { id: "console", label: "Console", icon: Terminal },
     { id: "files", label: "Fichiers", icon: FolderOpen },
     { id: "deploy", label: "Déployer", icon: GitBranch },
+    { id: "startup", label: "Startup", icon: Play },
     { id: "settings", label: "Paramètres", icon: Settings },
   ] as const;
 
@@ -1032,6 +1183,7 @@ export default function ServerDetailPage() {
               <DeployPanel identifier={identifier} serverName={server?.name || ""} />
             </div>
           )}
+          {activeTab === "startup" && <StartupPanel identifier={identifier} />}
           {activeTab === "settings" && (
             <div className="space-y-4 overflow-y-auto h-full pb-4">
               {/* Resource limits */}

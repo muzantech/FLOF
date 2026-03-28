@@ -143,7 +143,8 @@ export default function DeployPage() {
   useEffect(() => {
     if (!deploymentId || !selectedServer) return;
     sseRef.current?.close();
-    const url = `/api/servers/${selectedServer.identifier}/deploy/sse?deploymentId=${deploymentId}`;
+    const token = localStorage.getItem("flyhost_token") || "";
+    const url = `/api/servers/${selectedServer.identifier}/deploy/sse?deploymentId=${deploymentId}&token=${encodeURIComponent(token)}`;
     const es = new EventSource(url);
     sseRef.current = es;
     es.onmessage = (e) => {
@@ -335,7 +336,7 @@ export default function DeployPage() {
                     );
                   })}
 
-                  <button onClick={() => setLocation("/servers/new")} style={{
+                  <button onClick={() => setLocation("/servers")} style={{
                     display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "8px",
                     padding: "40px 18px", border: `2px dashed rgba(255,255,255,0.08)`, borderRadius: "14px",
                     background: "transparent", cursor: "pointer", fontFamily: "inherit", color: Muted, fontSize: "13px", fontWeight: 700,

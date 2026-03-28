@@ -389,6 +389,15 @@ export async function getServerStats(identifier: string) {
   return pteroClientRequest(`/servers/${identifier}/resources`);
 }
 
+// ——— Startup management ———
+export async function getServerStartup(identifier: string) {
+  return pteroClientRequest(`/servers/${identifier}/startup`);
+}
+
+export async function updateStartupVariable(identifier: string, key: string, value: string) {
+  return pteroClientRequest(`/servers/${identifier}/startup/variable`, "PUT", { key, value });
+}
+
 // ——— Client API key test ———
 export async function testClientKey() {
   try {
