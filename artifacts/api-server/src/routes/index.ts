@@ -10,6 +10,7 @@ import userProfileRouter from "./user-profile";
 import subscriptionsRouter from "./subscriptions";
 import referralsRouter from "./referrals";
 import serversRouter from "./servers";
+import deployRouter from "./deploy";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use(userProfileRouter);
 router.use(subscriptionsRouter);
 router.use(referralsRouter);
 router.use(serversRouter);
+router.use(deployRouter);
 
 export default router;

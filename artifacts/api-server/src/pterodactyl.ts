@@ -312,6 +312,42 @@ export async function compressServerFiles(identifier: string, root: string, file
   return pteroClientRequest(`/servers/${identifier}/files/compress`, "POST", { root, files });
 }
 
+// ——— File upload (ZIP) to Pterodactyl server ———
+export async function getUploadUrl(identifier: string): Promise<string> {
+  const data = await pteroClientRequest(`/servers/${identifier}/files/upload`);
+  return data.attributes.url as string;
+}
+
+export async function uploadZipToPterodactyl(identifier: string, zipBuffer: Buffer, filename = "flyhost-deploy.zip"): Promise<void> {
+  // 1. Get signed upload URL
+  const uploadUrl = await getUploadUrl(identifier);
+
+  // 2. Upload the ZIP using FormData (native Node.js 18+)
+  const blob = new Blob([zipBuffer], { type: "application/zip" });
+  const formData = new FormData();
+  formData.append("files", blob, filename);
+
+  const uploadRes = await fetch(uploadUrl, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!uploadRes.ok) {
+    const t = await uploadRes.text();
+    throw new Error(`ZIP upload failed: ${uploadRes.status} ${t.substring(0, 200)}`);
+  }
+
+  // 3. Decompress the uploaded ZIP in /home/container/
+  await decompressServerFile(identifier, "/home/container", filename);
+
+  // 4. Clean up the ZIP file from the server
+  try {
+    await deleteServerFiles(identifier, "/home/container", [filename]);
+  } catch {
+    // Non-fatal — zip cleanup failure shouldn't fail the deploy
+  }
+}
+
 export async function decompressServerFile(identifier: string, root: string, file: string) {
   return pteroClientRequest(`/servers/${identifier}/files/decompress`, "POST", { root, file });
 }

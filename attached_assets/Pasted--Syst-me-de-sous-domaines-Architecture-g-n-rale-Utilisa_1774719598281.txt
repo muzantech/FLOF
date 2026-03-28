@@ -1,0 +1,112 @@
+ Système de sous-domaines
+Architecture générale
+Utilisateur → flihost.site (Cloudflare wildcard DNS)
+→ Nginx (SSL termination, wildcard cert *.flihost.site)
+→ Node.js :3000 (proxy middleware)
+→ discoverContainerIp() → Docker bridge (172.18.0.x)
+→ Conteneur Pterodactyl de l'utilisateur
+Comment un sous-domaine est attribué
+Priorité	Source	Exemple
+1	custom_subdomain (choix utilisateur)	monbot.flihost.site
+2	server_identifier (ID Pterodactyl auto)	a1b2c3d4.flihost.site
+3	custom_domain (domaine externe propre)	monapp.com
+Validation :
+
+Sous-domaine custom : regex ^[a-z0-9-]{3,32}$ — 3 à 32 caractères, minuscules
+Domaine externe : regex ^([a-z0-9-]+\.)+[a-z]{2,}$
+Unicité vérifiée en base avant attribution
+Proxy interne — détails
+req.headers.host → extrait le sous-domaine
+→ subdomainCache (TTL 60s) pour éviter les requêtes DB répétées
+→ si absent du cache : SELECT servers WHERE custom_subdomain = ?
+→ discoverContainerIp(alloc_port) scanne 172.18.0.1 → 172.18.0.254
+→ http-proxy.web() vers http://{ip_interne}:{port}
+→ si erreur (container redémarré) : invalidateContainerIpCache()
+WebSocket également supporté via un handler upgrade séparé.
+
+Cloudflare & Nginx
+ensureWildcardDNS() : crée automatiquement le record A *.flihost.site → SERVER_IP si absent
+Nginx : un seul certificat wildcard pour tout le domaine, tout redirigé vers 127.0.0.1:3000
+Sync automatique des ports : syncAllocPortsFromPterodactyl() maintient alloc_port à jour si Pterodactyl réalloue
+💰 Système Paiement & Coins
+Utilisateur → choisit plan en FCFA
+→ POST /api/payment/initiate → crée transaction en DB (status: pending)
+→ Payload envoyé à MoneyFusion (https://pay.moneyfusion.net/FLYHOST/...)
+→ Redirection navigateur vers page de paiement MoneyFusion
+MoneyFusion → paiement effectué
+→ POST /api/payment/webhook (event: payin.session.completed)
+→ Validation tokenPay contre transactions en DB
+→ Si achat coins : UPDATE users SET coins = coins + Montant
+→ Si achat plan : createPanelFromPayment() → provisionnement serveur
+→ GET /payment/callback → redirection payment-success.html
+Taux de conversion : 1 FCFA = 1 Coin (1:1 direct)
+
+Plan	Coins requis	RAM	Serveurs max
+Free	0	256 MB	1
+Starter 1 GB	50	1024 MB	3
+Pro 4 GB	120	4096 MB	10
+Business 8 GB	170	8192 MB	15
+Unlimited	—	20 GB	999
+🖥️ Gestion des serveurs (Pterodactyl)
+Création
+POST /api/servers/create
+→ Vérif plan + limite max_servers
+→ Déduction coins atomique
+→ createPterodactylUser() si premier serveur
+→ createPterodactylServer() : sélection Egg + Docker image auto selon techno
+→ INSERT servers + schedules de redémarrage
+→ Sous-domaine assigné automatiquement
+Monitoring
+Temps réel : getServerPowerStatus() → /resources Pterodactyl (CPU, RAM, Disk, Uptime)
+Historique : cron toutes les 5 minutes → server_metrics (graphiques sur server.html)
+Alertes : email automatique si CPU > 90% ou crash inattendu
+Cycle de vie
+Création → actif
+→ Alertes à J-7, J-3, J-1 avant expiration
+→ Auto-renouvellement (si auto_renew=1 + coins suffisants)
+→ Sinon : suppression automatique à expiration (cron horaire)
+🎁 Coins & Récompenses journalières
+/api/daily-reward/claim (cooldown 20h)
+→ Base : 5 coins/jour
+→ +2 coins par jour consécutif (streak)
+→ Bonus paliers : x2 à 7j, bonus spécial à 100j et 1 an
+→ Streak perdu si plus de 24h sans connexion
+👥 Système de parrainage
+Code unique par utilisateur → /register?ref=CODE
+Suivi referral_count + total_coins_earned
+Leaderboard public des meilleurs parrains (/api/referral/leaderboard)
+🛒 Marketplace & Revendeurs
+Marketplace
+Achat/vente de templates, scripts, configs
+Commission 10% prélevée par FLYHOST, 90% au vendeur
+Livraison digitale directe + optionnellement par email
+Système de reviews/notation par article
+Boutiques personnalisées par revendeur (/shop/:slug)
+Système Revendeur
+Accès après signature du contrat revendeur (reseller-contract.html)
+Achat de capacité serveur en gros avec réductions
+Gestion de clients propres + codes promo personnalisés
+Commissions sur activités clients → retrait possible
+Branding custom : nom commercial, page boutique propre
+📧 Notifications & Communication
+Canal	Usage
+Email (nodemailer)	Vérification, alertes expiration, factures PDF
+WhatsApp (whatsapp-bot.js)	Notifications serveur, interaction directe
+Discord	Notifications via webhook URL
+Telegram	Notifications via telegram_chat_id
+Factures PDF générées avec pdfkit pour chaque transaction.
+
+🛡️ Anti-abus & Sécurité
+Rate limiting : authLimiter (connexions) + apiLimiter (API générale) via express-rate-limit
+IP tracking : chaque utilisateur loggé + géomap admin pour détecter clusters suspects
+Vérification coins : vérification atomique avant chaque transaction (pas de solde négatif)
+Isolation réseau : le proxy ne route que vers les IPs Docker internes connues
+Email obligatoire : middleware requireEmailVerification sur routes sensibles
+⚠️ Points faibles identifiés
+Priorité	Problème
+🔴	Snapshots rollback dans /tmp/ → perdus au reboot
+🔴	Cache sous-domaine 60s → délai visible après changement
+🟠	discoverContainerIp scanne 254 IPs à chaque cache-miss → lent si beaucoup de serveurs
+🟠	Webhook MoneyFusion : pas de vérification de signature HMAC
+🟡	Auto-renouvellement ne notifie pas en cas d'échec (coins insuffisants silencieux)
+🟡	syncAllocPortsFromPterodactyl() : fréquence non précisée — peut désynchroniser le proxy

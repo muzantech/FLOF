@@ -1,0 +1,63 @@
+omment ça fonctionne réellement
+Déploiement ZIP (POST /api/deploy/zip)
+Frontend → multer upload → détection auto tech
+→ INSERT deployments (status: 'building')
+→ deployFromZip()
+    ├── Extraction dans /tmp/flyhost-deploy-{id}/
+    ├── Flattening si 1 seul dossier racine
+    ├── Suppression node_modules + lockfiles
+    ├── Création .env si variables fournies
+    ├── Vérification taille < MAX_DEPLOY_SIZE_MB
+    └── buildZipFromDir() → uploadZipToPterodactyl()
+            ├── Demande URL signée à Pterodactyl
+            ├── POST ZIP via form-data
+            ├── /files/decompress sur serveur distant
+            └── Suppression du ZIP distant
+→ UPDATE deployments (status: 'deployed' ou 'failed')
+→ broadcastDeployStatus() via SSE
+Déploiement GitHub (POST /api/deploy/github)
+Frontend → URL repo + branche
+→ Lecture flyhost.json si présent (priorité)
+→ Sinon: auto-détection via GitHub Trees API
+→ INSERT deployments (status: 'building')
+→ deployFromGitHub()
+    ├── git clone --depth 1 (+ token si dispo)
+    ├── Mise à jour git_commit
+    ├── Création .env
+    ├── Validation taille
+    └── buildZipFromDir() → uploadZipToPterodactyl()
+→ autoSwitchEnvironment() → change l'egg Pterodactyl
+→ Démarrage serveur via console command
+→ UPDATE deployments (status: 'deployed' ou 'failed')
+Suivi en temps réel (SSE)
+Endpoint : /api/servers/:id/logs/sse (EventSource, pas WebSocket)
+Envoie les 200 dernières lignes du build_log à la connexion
+Heartbeat toutes 2s pour maintenir la connexion
+logDeployment() → ajoute en base et broadcast simultanément
+analyzeDeployError() analyse les logs pour proposer des suggestions ciblées (ex: module Python manquant)
+Rollback
+Avant chaque déploiement : saveSnapshot() crée un ZIP dans uploads/deployments/
+/api/servers/:id/rollback → identifie la version cible
+/api/deploy/:id/rollback/:snapshotId → uploadZipToPterodactyl() avec l'ancien ZIP
+🔴 Bugs critiques
+#	Problème	Impact	Localisation
+1	Faux succès de déploiement : setTimeout(5000) pour attendre npm install — si l'install prend plus de 5s le statut passe à deployed alors que le serveur plante	Tous les projets avec beaucoup de dépendances affichent "déployé" alors qu'ils ne démarrent pas	~ligne 3821
+2	Snapshots dans /tmp/ : effacés à chaque redémarrage du container → rollback impossible après reboot	Fonctionnalité rollback non fiable	~ligne 3200
+3	building bloqué pour toujours : si le process crash en cours de build, le statut reste building indéfiniment, l'utilisateur ne sait pas	UX cassée — "Déploiement en cours..." à l'infini	Cron ligne ~4350
+4	Injection de commande potentielle : builtStartup construit depuis le contenu de flyhost.json (fourni par l'utilisateur via ZIP ou GitHub) sans sanitization	Risque de sécurité — exécution de commandes arbitraires dans Pterodactyl	~ligne 3639
+🟠 Problèmes importants
+#	Problème	Impact
+5	Flattening ZIP fragile : si le projet a légitimement 1 seul dossier racine (ex: src/), le contenu est déplacé au niveau racine et casse la structure	Certains projets bien structurés ne se déploient pas correctement
+6	Changement d'egg silencieux : si autoSwitchEnvironment() échoue, le déploiement continue dans le mauvais environnement (code Python dans container Node.js = crash garanti)	Le log dit "succès" mais le serveur ne démarre pas
+7	Mot de passe interne hardcodé : WEB_CONFIG.INTERNAL_PASSWORD = 'JESUS'	Risque sécurité si route interne exposée
+8	Webhook GitHub global : secret webhook partagé entre tous les utilisateurs, pas par repo	N'importe qui peut déclencher un re-déploiement
+🟡 Points d'amélioration
+La détection de tech via regex sur noms de fichiers a des faux positifs (ex: un projet Node.js avec un requirements.txt de documentation)
+Les URLs des templates (BUILTIN_TEMPLATE_URLS) sont hardcodées et peuvent devenir obsolètes
+L'IP Pterodactyl est hardcodée (173.212.226.118) au lieu d'être une variable d'env
+Pas de nettoyage des /tmp/ après déploiement — accumulation au fil du temps
+🛠 Priorités de correction
+Court terme — Remplacer le setTimeout(5000) par une vraie boucle de poll du statut Pterodactyl → déploiement fiable
+Court terme — Détecter les statuts building bloqués depuis plus de 15 min et les passer à failed (job cron)
+Moyen terme — Déplacer les snapshots vers uploads/snapshots/ (persistant) au lieu de /tmp/
+Sécurité — Sanitizer le contenu de flyhost.json avant de l'injecter dans les commandes Pterodactyl

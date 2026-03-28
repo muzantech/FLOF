@@ -6,15 +6,19 @@ import { usersTable } from "./users";
 
 export const deploymentsTable = pgTable("deployments", {
   id: serial("id").primaryKey(),
-  projectId: integer("project_id").notNull().references(() => projectsTable.id),
+  projectId: integer("project_id").references(() => projectsTable.id),
   userId: integer("user_id").notNull().references(() => usersTable.id),
-  status: text("status").notNull().default("queued"), // queued, building, ready, error, cancelled
+  status: text("status").notNull().default("queued"), // queued, building, deployed, failed, cancelled, rolled_back
   url: text("url"),
   commit: text("commit"),
   commitMessage: text("commit_message"),
   branch: text("branch"),
   duration: integer("duration"),
   isProduction: boolean("is_production").notNull().default(false),
+  // Pterodactyl integration
+  serverId: text("server_id"),           // Pterodactyl server identifier
+  method: text("method"),               // zip | github | template
+  snapshotPath: text("snapshot_path"),  // path to rollback snapshot zip
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
