@@ -1,22 +1,33 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: FlyHost API - Vercel Clone Platform
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication operations
+  - name: projects
+    description: Project management
+  - name: deployments
+    description: Deployment management
+  - name: domains
+    description: Domain management
+  - name: teams
+    description: Team management
+  - name: logs
+    description: Deployment logs
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +35,611 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # AUTH
+  /auth/register:
+    post:
+      operationId: register
+      tags: [auth]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterBody"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginBody"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateMe
+      tags: [auth]
+      summary: Update current user profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserBody"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  # PROJECTS
+  /projects:
+    get:
+      operationId: listProjects
+      tags: [projects]
+      summary: List all projects
+      parameters:
+        - name: teamId
+          in: query
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+
+    post:
+      operationId: createProject
+      tags: [projects]
+      summary: Create a new project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectBody"
+      responses:
+        "201":
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+
+  /projects/{projectId}:
+    get:
+      operationId: getProject
+      tags: [projects]
+      summary: Get a project by ID
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    patch:
+      operationId: updateProject
+      tags: [projects]
+      summary: Update a project
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProjectBody"
+      responses:
+        "200":
+          description: Updated project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+
+    delete:
+      operationId: deleteProject
+      tags: [projects]
+      summary: Delete a project
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  # DEPLOYMENTS
+  /projects/{projectId}/deployments:
+    get:
+      operationId: listDeployments
+      tags: [deployments]
+      summary: List deployments for a project
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of deployments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Deployment"
+
+    post:
+      operationId: createDeployment
+      tags: [deployments]
+      summary: Create a new deployment
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDeploymentBody"
+      responses:
+        "201":
+          description: Deployment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Deployment"
+
+  /deployments/{deploymentId}:
+    get:
+      operationId: getDeployment
+      tags: [deployments]
+      summary: Get a deployment by ID
+      parameters:
+        - name: deploymentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deployment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Deployment"
+
+  /deployments/{deploymentId}/cancel:
+    post:
+      operationId: cancelDeployment
+      tags: [deployments]
+      summary: Cancel a deployment
+      parameters:
+        - name: deploymentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Deployment"
+
+  /deployments/{deploymentId}/promote:
+    post:
+      operationId: promoteDeployment
+      tags: [deployments]
+      summary: Promote deployment to production
+      parameters:
+        - name: deploymentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Promoted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Deployment"
+
+  /deployments/{deploymentId}/logs:
+    get:
+      operationId: getDeploymentLogs
+      tags: [logs]
+      summary: Get deployment logs
+      parameters:
+        - name: deploymentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DeploymentLog"
+
+  # DOMAINS
+  /projects/{projectId}/domains:
+    get:
+      operationId: listDomains
+      tags: [domains]
+      summary: List domains for a project
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of domains
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Domain"
+
+    post:
+      operationId: addDomain
+      tags: [domains]
+      summary: Add a domain to a project
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddDomainBody"
+      responses:
+        "201":
+          description: Domain added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Domain"
+
+  /domains/{domainId}:
+    delete:
+      operationId: removeDomain
+      tags: [domains]
+      summary: Remove a domain
+      parameters:
+        - name: domainId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /domains/{domainId}/verify:
+    post:
+      operationId: verifyDomain
+      tags: [domains]
+      summary: Verify domain DNS
+      parameters:
+        - name: domainId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Domain"
+
+  # TEAMS
+  /teams:
+    get:
+      operationId: listTeams
+      tags: [teams]
+      summary: List user's teams
+      responses:
+        "200":
+          description: List of teams
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Team"
+
+    post:
+      operationId: createTeam
+      tags: [teams]
+      summary: Create a new team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTeamBody"
+      responses:
+        "201":
+          description: Team created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+
+  /teams/{teamId}:
+    get:
+      operationId: getTeam
+      tags: [teams]
+      summary: Get a team by ID
+      parameters:
+        - name: teamId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Team
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+
+  /teams/{teamId}/members:
+    get:
+      operationId: listTeamMembers
+      tags: [teams]
+      summary: List team members
+      parameters:
+        - name: teamId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TeamMember"
+
+    post:
+      operationId: inviteTeamMember
+      tags: [teams]
+      summary: Invite a member to team
+      parameters:
+        - name: teamId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteMemberBody"
+      responses:
+        "201":
+          description: Invited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamMember"
+
+  /teams/{teamId}/members/{memberId}:
+    delete:
+      operationId: removeTeamMember
+      tags: [teams]
+      summary: Remove a team member
+      parameters:
+        - name: teamId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Removed
+
+  # ENV VARS
+  /projects/{projectId}/env:
+    get:
+      operationId: listEnvVars
+      tags: [projects]
+      summary: List environment variables
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Env vars
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EnvVar"
+
+    post:
+      operationId: createEnvVar
+      tags: [projects]
+      summary: Create environment variable
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEnvVarBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvVar"
+
+  /projects/{projectId}/env/{envId}:
+    delete:
+      operationId: deleteEnvVar
+      tags: [projects]
+      summary: Delete environment variable
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: envId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  # STATS
+  /stats:
+    get:
+      operationId: getStats
+      tags: [projects]
+      summary: Get platform statistics for the user
+      responses:
+        "200":
+          description: Statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Stats"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +647,342 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+      required: [success]
+
+    # AUTH SCHEMAS
+    RegisterBody:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
+        username:
+          type: string
+      required: [name, email, password, username]
+
+    LoginBody:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+      required: [email, password]
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: "#/components/schemas/User"
+      required: [token, user]
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+        username:
+          type: string
+        avatarUrl:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, name, email, username, createdAt]
+
+    UpdateUserBody:
+      type: object
+      properties:
+        name:
+          type: string
+        avatarUrl:
+          type: ["string", "null"]
+
+    # PROJECT SCHEMAS
+    Project:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: ["string", "null"]
+        framework:
+          type: ["string", "null"]
+        gitRepo:
+          type: ["string", "null"]
+        gitBranch:
+          type: ["string", "null"]
+        teamId:
+          type: ["integer", "null"]
+        userId:
+          type: integer
+        status:
+          type: string
+          enum: [active, paused, deleted]
+        latestDeploymentId:
+          type: ["integer", "null"]
+        latestDeploymentUrl:
+          type: ["string", "null"]
+        latestDeploymentStatus:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, name, slug, userId, status, createdAt, updatedAt]
+
+    CreateProjectBody:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        framework:
+          type: ["string", "null"]
+        gitRepo:
+          type: ["string", "null"]
+        gitBranch:
+          type: ["string", "null"]
+        teamId:
+          type: ["integer", "null"]
+      required: [name]
+
+    UpdateProjectBody:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        framework:
+          type: ["string", "null"]
+        gitRepo:
+          type: ["string", "null"]
+        gitBranch:
+          type: ["string", "null"]
+
+    # DEPLOYMENT SCHEMAS
+    Deployment:
+      type: object
+      properties:
+        id:
+          type: integer
+        projectId:
+          type: integer
+        userId:
+          type: integer
+        status:
+          type: string
+          enum: [queued, building, ready, error, cancelled]
+        url:
+          type: ["string", "null"]
+        commit:
+          type: ["string", "null"]
+        commitMessage:
+          type: ["string", "null"]
+        branch:
+          type: ["string", "null"]
+        duration:
+          type: ["integer", "null"]
+        isProduction:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, projectId, userId, status, isProduction, createdAt, updatedAt]
+
+    CreateDeploymentBody:
+      type: object
+      properties:
+        branch:
+          type: ["string", "null"]
+        commit:
+          type: ["string", "null"]
+        commitMessage:
+          type: ["string", "null"]
+      required: []
+
+    DeploymentLog:
+      type: object
+      properties:
+        id:
+          type: integer
+        deploymentId:
+          type: integer
+        level:
+          type: string
+          enum: [info, warn, error]
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+      required: [id, deploymentId, level, message, timestamp]
+
+    # DOMAIN SCHEMAS
+    Domain:
+      type: object
+      properties:
+        id:
+          type: integer
+        projectId:
+          type: integer
+        name:
+          type: string
+        verified:
+          type: boolean
+        primary:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, projectId, name, verified, primary, createdAt]
+
+    AddDomainBody:
+      type: object
+      properties:
+        name:
+          type: string
+      required: [name]
+
+    # TEAM SCHEMAS
+    Team:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        slug:
+          type: string
+        avatarUrl:
+          type: ["string", "null"]
+        ownerId:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, name, slug, ownerId, createdAt]
+
+    CreateTeamBody:
+      type: object
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+      required: [name, slug]
+
+    TeamMember:
+      type: object
+      properties:
+        id:
+          type: integer
+        teamId:
+          type: integer
+        userId:
+          type: integer
+        role:
+          type: string
+          enum: [owner, member, viewer]
+        email:
+          type: string
+        name:
+          type: string
+        username:
+          type: string
+        joinedAt:
+          type: string
+          format: date-time
+      required: [id, teamId, userId, role, email, name, username, joinedAt]
+
+    InviteMemberBody:
+      type: object
+      properties:
+        email:
+          type: string
+        role:
+          type: string
+          enum: [member, viewer]
+      required: [email, role]
+
+    # ENV VAR SCHEMAS
+    EnvVar:
+      type: object
+      properties:
+        id:
+          type: integer
+        projectId:
+          type: integer
+        key:
+          type: string
+        value:
+          type: string
+        environment:
+          type: string
+          enum: [production, preview, development]
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, projectId, key, value, environment, createdAt]
+
+    CreateEnvVarBody:
+      type: object
+      properties:
+        key:
+          type: string
+        value:
+          type: string
+        environment:
+          type: string
+          enum: [production, preview, development]
+      required: [key, value, environment]
+
+    # STATS
+    Stats:
+      type: object
+      properties:
+        totalProjects:
+          type: integer
+        totalDeployments:
+          type: integer
+        activeDeployments:
+          type: integer
+        successRate:
+          type: number
+        totalDomains:
+          type: integer
+      required: [totalProjects, totalDeployments, activeDeployments, successRate, totalDomains]

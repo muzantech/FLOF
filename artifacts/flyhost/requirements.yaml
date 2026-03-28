@@ -1,0 +1,19 @@
+packages:
+  "framer-motion": "For page transitions and interactive animations"
+  "react-hook-form": "For form state management"
+  "@hookform/resolvers": "For Zod validation integration with forms"
+  "date-fns": "For formatting timestamps"
+  "lucide-react": "For beautiful consistent iconography"
+  "recharts": "For dashboard statistics visualization"
+
+images:
+  - path: "artifacts/flyhost/public/images/hero-glow.png"
+    description: "Minimalist dark abstract background with a subtle, elegant, futuristic glowing aura or mesh gradient in monochromatic tones (black, dark gray, slight white light leak)"
+    aspect_ratio: "16:9"
+  - path: "artifacts/flyhost/public/images/logo.png"
+    description: "Minimal geometric logo mark consisting of a sharp, modern white triangle or stylized 'F' on a pure black background, premium tech startup style"
+    aspect_ratio: "1:1"
+
+notes:
+  - App relies on Bearer token in Authorization header for all API calls. A global fetch interceptor is used to automatically attach the JWT from localStorage.
+  - The UI uses a strict dark mode aesthetic (Vercel-inspired).
