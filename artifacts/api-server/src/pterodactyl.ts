@@ -223,6 +223,12 @@ export async function deletePteroServer(serverId: number) {
   return pteroAppRequest(`/servers/${serverId}/force`, "DELETE");
 }
 
+export async function getPteroServerByIdentifier(identifier: string): Promise<{ id: number } | null> {
+  const data = await pteroAppRequest(`/servers?filter[identifier]=${identifier}&per_page=10`);
+  const found = data.data?.find((s: any) => s.attributes.identifier === identifier);
+  return found ? { id: found.attributes.id } : null;
+}
+
 export async function listPteroServers(page = 1) {
   return pteroAppRequest(`/servers?per_page=25&page=${page}`);
 }

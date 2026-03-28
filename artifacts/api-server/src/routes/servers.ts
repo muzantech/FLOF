@@ -10,6 +10,7 @@ import {
   suspendPteroServer,
   unsuspendPteroServer,
   deletePteroServer,
+  getPteroServerByIdentifier,
   listPteroServers,
   getPteroServer,
   sendPowerAction,
@@ -225,10 +226,25 @@ router.post("/servers/:id/unsuspend", requireAuth, async (req: AuthRequest, res)
   }
 });
 
-// DELETE /api/servers/:id — delete server
+// DELETE /api/servers/:id — delete server (accepts numeric ID or string identifier)
 router.delete("/servers/:id", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   try {
-    const serverId = parseInt(req.params.id, 10);
+    const raw = req.params.id;
+    let serverId: number;
+
+    const numericId = parseInt(raw, 10);
+    if (!isNaN(numericId) && String(numericId) === raw) {
+      serverId = numericId;
+    } else {
+      // Treat as string identifier — look up numeric ID
+      const found = await getPteroServerByIdentifier(raw);
+      if (!found) {
+        res.status(404).json({ error: "Serveur introuvable" });
+        return;
+      }
+      serverId = found.id;
+    }
+
     await deletePteroServer(serverId);
     res.json({ success: true });
   } catch (err: any) {
