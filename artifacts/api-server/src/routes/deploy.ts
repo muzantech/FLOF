@@ -15,7 +15,7 @@ import path from "path";
 import os from "os";
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { uploadZipToPterodactyl, sendPowerAction, writeFileContents, purgeServerFiles, updateStartupVariable, getServerStats, updateServerEnvViaAppAPI, getPteroServerByIdentifier, getPteroServer, buildNodeStartup, buildPythonStartup, buildPhpStartup, buildStaticStartup, buildBunStartup, buildDenoStartup, buildRubyStartup, buildGoStartup, getServerCurrentEgg, switchServerEgg, EGG_CONFIGS } from "../pterodactyl";
+import { uploadZipToPterodactyl, sendPowerAction, writeFileContents, purgeServerFiles, updateStartupVariable, getServerStats, updateServerEnvViaAppAPI, getPteroServerByIdentifier, getPteroServer, buildNodeStartup, buildPythonStartup, buildPhpStartup, buildStaticStartup, buildBunStartup, buildDenoStartup, buildRubyStartup, buildGoStartup, getServerCurrentEgg, switchServerEgg, waitForServerReady, EGG_CONFIGS } from "../pterodactyl";
 import { createSubdomainDNS } from "../cloudflare";
 import { setCacheEntry } from "../subdomain-proxy";
 
@@ -535,8 +535,15 @@ async function runDeploy(
           const switchResult = await switchServerEgg(serverInfo.id, requiredEggKey, analysis.pteroEnvUpdates["STARTUP"] || "");
           if (switchResult.switched) {
             await logDeploy(deploymentId, "info", `  ✅ ${switchResult.message}`);
-            await logDeploy(deploymentId, "info", `  ⏳ Attente de la réinstallation du container (30s)...`);
-            await sleep(30000); // Wait for Wings to recreate the container
+            await logDeploy(deploymentId, "info", `  ⏳ Attente de la réinstallation du container (max 3 min)...`);
+            // Poll until installation finishes instead of fixed sleep
+            const ready = await waitForServerReady(serverInfo.id, 180_000, 5_000);
+            if (ready) {
+              await logDeploy(deploymentId, "info", `  ✅ Container réinstallé et prêt`);
+            } else {
+              await logDeploy(deploymentId, "warn", `  ⚠️ Réinstallation longue ou incertaine — attente d'une sécurité supplémentaire (15s)...`);
+              await sleep(15000);
+            }
           } else {
             await logDeploy(deploymentId, "warn", `  ⚠️ ${switchResult.message}`);
             await logDeploy(deploymentId, "warn", `  ℹ️ Le déploiement continue — la commande de démarrage sera adaptée au maximum possible`);

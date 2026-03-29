@@ -539,6 +539,32 @@ export async function switchServerEgg(
   }
 }
 
+/**
+ * Polls the Application API until a server finishes installing/reinstalling.
+ * Returns true if the server is ready, false on timeout or install failure.
+ * Pterodactyl sets attributes.status to null when installation completes.
+ */
+export async function waitForServerReady(
+  serverId: number,
+  timeoutMs = 180_000,
+  pollIntervalMs = 5_000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, pollIntervalMs));
+    try {
+      const data = await pteroAppRequest(`/servers/${serverId}`);
+      const status: string | null = data?.attributes?.status ?? null;
+      if (status === null) return true;           // installed and ready
+      if (status === "install_failed") return false; // failed — don't wait any longer
+      // status === "installing" → keep polling
+    } catch {
+      // Transient error — keep polling
+    }
+  }
+  return false; // Timed out
+}
+
 export async function listClientServers() {
   return pteroClientRequest("/");
 }
