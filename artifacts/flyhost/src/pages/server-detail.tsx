@@ -1257,37 +1257,22 @@ export default function ServerDetailPage() {
           </div>
         )}
 
-        {/* App URL banner — shown when server has a URL */}
-        {(server?.appUrl || server?.subdomainUrl) && (
+        {/* App URL banner — shown when server has a subdomain URL */}
+        {server?.subdomainUrl && (
           <div className="flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-lg border border-zinc-800 bg-zinc-900/50">
             <ExternalLink className="w-4 h-4 text-yellow-400 flex-shrink-0" />
-            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 flex-1 min-w-0">
-              {server.appUrl && (
-                <a
-                  href={server.appUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs font-mono text-yellow-300 hover:text-yellow-200 truncate underline underline-offset-2"
-                >
-                  {server.appUrl}
-                </a>
-              )}
-              {server.subdomainUrl && server.appUrl && (
-                <span className="text-xs text-zinc-700 hidden sm:inline">·</span>
-              )}
-              {server.subdomainUrl && (
-                <a
-                  href={server.subdomainUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs font-mono text-zinc-500 hover:text-zinc-300 truncate"
-                  title="URL sous-domaine (DNS wildcard *.flihost.site)"
-                >
-                  {server.subdomainUrl}
-                </a>
-              )}
+            <div className="flex flex-1 min-w-0 items-center gap-2">
+              <a
+                href={server.subdomainUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-mono text-yellow-300 hover:text-yellow-200 truncate underline underline-offset-2"
+                title="URL publique (via reverse proxy FlyHost)"
+              >
+                {server.subdomainUrl}
+              </a>
             </div>
-            <span className="text-xs text-zinc-600 hidden sm:inline flex-shrink-0">URL de l'app</span>
+            <span className="text-xs text-zinc-600 hidden sm:inline flex-shrink-0">URL publique</span>
           </div>
         )}
 
@@ -1391,13 +1376,13 @@ export default function ServerDetailPage() {
                   <ExternalLink className="w-4 h-4 text-yellow-400" /> Sous-domaine & URL
                 </h3>
                 <p className="text-xs text-zinc-500 mb-4">
-                  Votre app est accessible via ce sous-domaine. Le DNS pointe directement sur Wings (HTTPS sur le port alloué).
+                  Votre app est accessible via ce sous-domaine. FlyHost relaie automatiquement le trafic vers votre serveur — aucun port dans l'URL.
                 </p>
 
                 {/* Current URL display */}
                 {server?.subdomainUrl && (
                   <div className="mb-4 p-3 rounded-lg bg-zinc-950 border border-zinc-800">
-                    <p className="text-xs text-zinc-500 mb-1">URL actuelle</p>
+                    <p className="text-xs text-zinc-500 mb-1">URL publique actuelle</p>
                     <a
                       href={server.subdomainUrl}
                       target="_blank"
@@ -1406,19 +1391,7 @@ export default function ServerDetailPage() {
                     >
                       {server.subdomainUrl}
                     </a>
-                    {server.appUrl && server.appUrl !== server.subdomainUrl && (
-                      <>
-                        <p className="text-xs text-zinc-500 mt-2 mb-1">URL directe (IP)</p>
-                        <a
-                          href={server.appUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs font-mono text-zinc-400 hover:text-zinc-300 break-all"
-                        >
-                          {server.appUrl}
-                        </a>
-                      </>
-                    )}
+                    <p className="text-xs text-zinc-700 mt-2">✓ Routé via reverse proxy FlyHost — URL propre sans port</p>
                   </div>
                 )}
 
@@ -1434,7 +1407,7 @@ export default function ServerDetailPage() {
                         placeholder="mon-app"
                         maxLength={32}
                       />
-                      <span className="text-xs text-zinc-500 pr-3 whitespace-nowrap">.flihost.site:{server?.allocation?.port}</span>
+                      <span className="text-xs text-zinc-500 pr-3 whitespace-nowrap">.flihost.site</span>
                     </div>
                     <Button
                       size="sm"

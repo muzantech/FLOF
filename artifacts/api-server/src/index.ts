@@ -6,6 +6,7 @@ import { pteroClientRequest } from "./pterodactyl";
 import jwt from "jsonwebtoken";
 import { startCronJobs } from "./cron";
 import { ensureWildcardDNS } from "./cloudflare";
+import { subdomainProxyMiddleware, refreshSubdomainCache } from "./subdomain-proxy";
 
 const rawPort = process.env["PORT"];
 
@@ -144,15 +145,46 @@ wss.on("connection", async (clientWs: WebSocket, _request: http.IncomingMessage,
   await connectToPtero();
 });
 
-// Start the server
+// Start the API server
 server.listen(port, async (err?: Error) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
   }
-  logger.info({ port }, "Server listening");
+  logger.info({ port }, "API Server listening");
 
   // Boot tasks (non-blocking)
   ensureWildcardDNS().catch(e => logger.warn({ e }, "ensureWildcardDNS failed"));
   startCronJobs();
+  refreshSubdomainCache().catch(() => {});
+});
+
+// ─── Standalone Subdomain Reverse Proxy ───────────────────────────────────────
+// Listens on PROXY_PORT (default 3000) and routes *.flihost.site → localhost:PORT
+// In production: set PROXY_PORT=80 so Cloudflare proxied traffic hits this server.
+// Architecture: Cloudflare (proxied) → this server → localhost:{container_port}
+const proxyPort = parseInt(process.env["PROXY_PORT"] || "3000", 10);
+const proxyMiddleware = subdomainProxyMiddleware();
+
+const proxyServer = http.createServer((req, res) => {
+  proxyMiddleware(req as any, res as any, () => {
+    // Not a known subdomain — show a FlyHost landing page
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(`<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"><title>FlyHost</title>
+<style>*{margin:0;box-sizing:border-box}body{background:#09090b;color:#fafafa;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh}
+.card{background:#18181b;border:1px solid #27272a;border-radius:1rem;padding:2.5rem;max-width:440px;width:100%;text-align:center}
+h1{font-size:2rem;color:#facc15;margin-bottom:1rem}p{color:#a1a1aa}a{color:#facc15;text-decoration:none}
+</style></head>
+<body><div class="card">
+<h1>⚡ FlyHost</h1>
+<p>Bienvenue sur FlyHost — Hébergez vos apps en un clic.</p>
+<p style="margin-top:1rem"><a href="https://flyhost.flihost.site">Accéder à la plateforme →</a></p>
+</div></body></html>`);
+  });
+});
+
+proxyServer.listen(proxyPort, () => {
+  logger.info({ proxyPort }, "Subdomain proxy server listening");
 });

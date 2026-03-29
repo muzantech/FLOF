@@ -5,7 +5,7 @@
  */
 import { Router, type Response } from "express";
 import { requireAuth, requireAuthFlexible, type AuthRequest } from "../middlewares/auth";
-import { db, deploymentsTable, deploymentLogsTable } from "@workspace/db";
+import { db, deploymentsTable, deploymentLogsTable, serverSubdomainsTable } from "@workspace/db";
 import { eq, lt, and } from "drizzle-orm";
 import multer from "multer";
 import AdmZip from "adm-zip";
@@ -17,6 +17,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { uploadZipToPterodactyl, sendPowerAction, writeFileContents, purgeServerFiles, updateStartupVariable, getServerStats, updateServerEnvViaAppAPI, getPteroServerByIdentifier, getPteroServer, buildNodeStartup, buildPythonStartup } from "../pterodactyl";
 import { createSubdomainDNS } from "../cloudflare";
+import { setCacheEntry } from "../subdomain-proxy";
 
 const WEB_TECHS = new Set(["nodejs", "python", "php"]);
 
@@ -461,18 +462,33 @@ async function runDeploy(
         if (serverInfo) {
           const subdomain = generateSubdomain(serverInfo.name);
           const full = await getPteroServer(serverInfo.id);
-          const port = full?.relationships?.allocations?.data?.[0]?.attributes?.port;
-          const ip = full?.relationships?.allocations?.data?.[0]?.attributes?.ip;
-          // Set SERVER_SUBDOMAIN env var
+          const port: number | undefined = full?.relationships?.allocations?.data?.[0]?.attributes?.port;
+          // Set SERVER_SUBDOMAIN env var on Pterodactyl
           await updateServerEnvViaAppAPI(serverInfo.id, { SERVER_SUBDOMAIN: subdomain }).catch(() => {});
-          // Create Cloudflare DNS (no-op if wildcard already covers it)
+          // Ensure Cloudflare wildcard DNS exists
           await createSubdomainDNS(subdomain).catch(() => {});
-          deployUrl = port ? `https://${ip}:${port}` : null;
-          const subdomainUrl = port ? `https://${subdomain}.flihost.site:${port}` : `https://${subdomain}.flihost.site`;
-          if (deployUrl) {
-            await logDeploy(deploymentId, "info", `🌐 URL directe    : ${deployUrl}`);
+          // Clean URL — no port (Cloudflare wildcard proxied → Express proxy → internal port)
+          const subdomainUrl = `https://${subdomain}.flihost.site`;
+          if (port) {
+            // Save subdomain → port mapping in DB for the reverse proxy
+            await db.insert(serverSubdomainsTable)
+              .values({
+                subdomain,
+                pterodactylIdentifier: identifier,
+                port,
+                ip: "127.0.0.1",
+                userId: req.user?.id ?? null,
+              })
+              .onConflictDoUpdate({
+                target: serverSubdomainsTable.subdomain,
+                set: { port, pterodactylIdentifier: identifier, ip: "127.0.0.1", updatedAt: new Date() },
+              })
+              .catch(() => {});
+            // Update in-memory proxy cache immediately
+            setCacheEntry(subdomain, port, "127.0.0.1");
+            deployUrl = subdomainUrl;
           }
-          await logDeploy(deploymentId, "info", `🔗 URL sous-domaine: ${subdomainUrl}`);
+          await logDeploy(deploymentId, "info", `🔗 URL de l'app   : ${subdomainUrl}`);
         }
       } catch { /* non-blocking */ }
     }

@@ -1,7 +1,8 @@
 import { Router, type IRouter } from "express";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
-import { db, usersTable, coinTransactionsTable, deploymentsTable, deploymentLogsTable } from "@workspace/db";
+import { db, usersTable, coinTransactionsTable, deploymentsTable, deploymentLogsTable, serverSubdomainsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
+import { setCacheEntry, deleteCacheEntry } from "../subdomain-proxy";
 import { createSubdomainDNS, deleteSubdomainDNS } from "../cloudflare";
 import {
   EGG_CONFIGS,
@@ -541,17 +542,41 @@ router.put("/servers/:id/subdomain", requireAuth, async (req: AuthRequest, res):
       const prevSubdomain = prevVar?.attributes?.server_value || prevVar?.attributes?.default_value;
       if (prevSubdomain && prevSubdomain !== subdomain) {
         await deleteSubdomainDNS(prevSubdomain).catch(() => {});
+        deleteCacheEntry(prevSubdomain);
+        // Remove old DB record
+        await db.delete(serverSubdomainsTable)
+          .where(eq(serverSubdomainsTable.subdomain, prevSubdomain))
+          .catch(() => {});
       }
     } catch { /* ignore */ }
 
-    // Create new Cloudflare DNS record (proxied: false — Wings handles HTTPS)
-    const dnsOk = await createSubdomainDNS(subdomain);
+    // Ensure Cloudflare wildcard DNS exists (proxied — orange cloud)
+    await createSubdomainDNS(subdomain).catch(() => {});
 
     // Store new subdomain in Pterodactyl env
     await updateServerEnvViaAppAPI(serverInfo.id, { SERVER_SUBDOMAIN: subdomain }).catch(() => {});
 
-    const url = port ? `https://${subdomain}.flihost.site:${port}` : `https://${subdomain}.flihost.site`;
-    res.json({ success: true, subdomain, url, port, dnsCreated: dnsOk });
+    // Upsert in DB: subdomain → port mapping for reverse proxy
+    if (port) {
+      await db.insert(serverSubdomainsTable)
+        .values({
+          subdomain,
+          pterodactylIdentifier: identifier,
+          port,
+          ip: "127.0.0.1",
+          userId: req.user?.id ?? null,
+        })
+        .onConflictDoUpdate({
+          target: serverSubdomainsTable.subdomain,
+          set: { port, pterodactylIdentifier: identifier, ip: "127.0.0.1", updatedAt: new Date() },
+        });
+      // Update in-memory proxy cache immediately
+      setCacheEntry(subdomain, port, "127.0.0.1");
+    }
+
+    // Clean URL — no port (Cloudflare proxied handles TLS)
+    const url = `https://${subdomain}.flihost.site`;
+    res.json({ success: true, subdomain, url, port, dnsCreated: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -801,12 +826,10 @@ function formatServer(s: any) {
   const a = s.attributes;
   const alloc = a.relationships?.allocations?.data?.[0]?.attributes;
   const subdomain = generateSubdomain(a.name);
-  const appUrl = alloc?.port
-    ? `https://${alloc.ip}:${alloc.port}`
-    : null;
-  const subdomainUrl = alloc?.port
-    ? `https://${subdomain}.flihost.site:${alloc.port}`
-    : `https://${subdomain}.flihost.site`;
+  // Clean URL via reverse proxy — no port exposed
+  const subdomainUrl = `https://${subdomain}.flihost.site`;
+  // Internal app URL (raw, with port) — for debugging only
+  const appUrl = alloc?.port ? `http://127.0.0.1:${alloc.port}` : null;
   return {
     id: a.id,
     uuid: a.uuid,

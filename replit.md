@@ -152,6 +152,29 @@ artifacts-monorepo/
 - Animated orb backgrounds (yellow + orange blur)
 - FlyLayout component uses inline CSS styles (not Tailwind)
 
+## Subdomain Reverse Proxy Architecture
+
+FlyHost uses a clean URL architecture for deployed apps:
+
+```
+User → https://mon-app.flihost.site (no port!)
+     → Cloudflare (orange cloud, proxied, wildcard *.flihost.site → 173.212.226.118)
+     → Express proxy server (PROXY_PORT=80, default 3000 in dev)
+     → Reads Host header → looks up subdomain in DB → proxies to localhost:{container_port}
+```
+
+**Key files:**
+- `artifacts/api-server/src/subdomain-proxy.ts` — standalone proxy middleware + in-memory cache
+- `artifacts/api-server/src/index.ts` — launches proxy server on PROXY_PORT (default 3000)
+- `lib/db/src/schema/subdomains.ts` — `server_subdomains` table (subdomain → port mapping)
+- `artifacts/api-server/src/cloudflare.ts` — ensures wildcard `*.flihost.site` DNS exists (proxied)
+
+**DB table `server_subdomains`:** `subdomain`, `pterodactylIdentifier`, `port`, `ip`, `userId`
+
+**In production:** Set `PROXY_PORT=80` so Cloudflare proxied traffic reaches the proxy server.
+
+**Subdomain → port cache:** In-memory Map refreshed from DB every 30s. Direct update on save (no DB roundtrip lag).
+
 ## TypeScript & Composite Projects
 
 Every package extends `tsconfig.base.json` which sets `composite: true`. The root `tsconfig.json` lists all packages as project references.
