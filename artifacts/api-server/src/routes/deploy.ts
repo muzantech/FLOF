@@ -277,31 +277,34 @@ async function runDeploy(
     const deployZip = await buildZipFromDir(srcDir);
     await logDeploy(deploymentId, "info", `ZIP créé : ${Math.round(deployZip.length / 1024)} Ko`);
 
-    // Stop server gracefully before upload
+    // Stop server before upload — use kill for immediate stop to avoid state race conditions
     await logDeploy(deploymentId, "info", `Arrêt du serveur avant déploiement...`);
     try {
-      await sendPowerAction(identifier, "stop");
-      await sleep(3000);
-    } catch { /* already stopped or unreachable — continue */ }
-
-    // Upload to Pterodactyl with retry
-    await logDeploy(deploymentId, "info", `Envoi des fichiers vers Pterodactyl...`);
-    let uploadOk = false;
-    let lastErr = "";
-    for (let attempt = 1; attempt <= 3; attempt++) {
+      await sendPowerAction(identifier, "kill");
+      await sleep(5000); // Wait longer so Wings fully registers the container as offline
+    } catch {
       try {
-        await uploadZipToPterodactyl(identifier, deployZip);
-        uploadOk = true;
-        break;
-      } catch (e: any) {
-        lastErr = e.message || String(e);
-        if (attempt < 3) {
-          await logDeploy(deploymentId, "warn", `Tentative ${attempt}/3 échouée — nouvel essai dans 5s...`);
-          await sleep(5000);
-        }
-      }
+        await sendPowerAction(identifier, "stop");
+        await sleep(8000);
+      } catch { /* already stopped — continue */ }
     }
-    if (!uploadOk) throw new Error(`Upload impossible après 3 tentatives : ${lastErr}`);
+
+    // Upload to Pterodactyl (panel proxy primary, Wings URL fallback)
+    await logDeploy(deploymentId, "info", `Envoi des fichiers vers Pterodactyl...`);
+    try {
+      await uploadZipToPterodactyl(identifier, deployZip);
+    } catch (uploadErr: any) {
+      const errMsg: string = uploadErr.message || String(uploadErr);
+      // Friendly message for Wings infrastructure issues
+      if (errMsg.includes("communicating with the machine") || errMsg.includes("500")) {
+        throw new Error(
+          `Wings ne peut pas accéder au container du serveur (code 500). ` +
+          `Ce serveur semble avoir un problème d'infrastructure. ` +
+          `Essayez de le réinstaller depuis le panel Pterodactyl, puis relancez le déploiement.`
+        );
+      }
+      throw uploadErr;
+    }
     await logDeploy(deploymentId, "info", `Fichiers déployés sur le serveur`);
 
     // Write startup info (sanitized)

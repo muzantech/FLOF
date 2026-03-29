@@ -429,33 +429,71 @@ export async function getUploadUrl(identifier: string): Promise<string> {
   return data.attributes.url as string;
 }
 
+/**
+ * Upload a ZIP to Pterodactyl via TWO strategies:
+ *   A) Panel-proxied write (POST /files/write → panel → Wings filesystem)
+ *   B) Wings signed URL direct upload (fallback)
+ * Then decompress and clean up.
+ * Strategy A avoids direct Wings connection issues (most common failure cause).
+ */
 export async function uploadZipToPterodactyl(identifier: string, zipBuffer: Buffer, filename = "flyhost-deploy.zip"): Promise<void> {
-  // 1. Get signed upload URL
-  const uploadUrl = await getUploadUrl(identifier);
+  const remotePath = `/home/container/${filename}`;
 
-  // 2. Upload the ZIP using FormData (native Node.js 18+)
-  const blob = new Blob([zipBuffer], { type: "application/zip" });
-  const formData = new FormData();
-  formData.append("files", blob, filename);
+  // ── Strategy A: Panel-proxied binary write ──────────────────────
+  try {
+    const writeRes = await fetch(`${PANEL_URL}/api/client/servers/${identifier}/files/write?file=${encodeURIComponent(remotePath)}`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${CLIENT_KEY}`,
+        "Content-Type": "application/octet-stream",
+      },
+      body: new Uint8Array(zipBuffer),
+    });
+    if (!writeRes.ok) {
+      const t = await writeRes.text();
+      throw new Error(`Proxy write ${writeRes.status}: ${t.substring(0, 150)}`);
+    }
+  } catch (proxyErr: any) {
+    console.warn("[upload] Panel-proxy write failed, trying Wings signed URL:", proxyErr.message);
 
-  const uploadRes = await fetch(uploadUrl, {
-    method: "POST",
-    body: formData,
-  });
+    // ── Strategy B: Wings signed URL (fallback) ───────────────────
+    const uploadUrl = await getUploadUrl(identifier);
+    const blob = new Blob([new Uint8Array(zipBuffer)], { type: "application/zip" });
+    const form = new FormData();
+    form.append("files", blob, filename);
 
-  if (!uploadRes.ok) {
-    const t = await uploadRes.text();
-    throw new Error(`ZIP upload failed: ${uploadRes.status} ${t.substring(0, 200)}`);
+    const uploadRes = await fetch(uploadUrl, { method: "POST", body: form });
+    if (!uploadRes.ok) {
+      const t = await uploadRes.text();
+      throw new Error(`Wings upload ${uploadRes.status}: ${t.substring(0, 150)}`);
+    }
   }
 
-  // 3. Decompress the uploaded ZIP in /home/container/
-  await decompressServerFile(identifier, "/home/container", filename);
+  // ── Decompress with retry ────────────────────────────────────────
+  // Wait a moment to ensure the file is fully written before decompress
+  await new Promise(r => setTimeout(r, 1500));
 
-  // 4. Clean up the ZIP file from the server
-  try {
-    await deleteServerFiles(identifier, "/home/container", [filename]);
-  } catch {
-    // Non-fatal — zip cleanup failure shouldn't fail the deploy
+  let decompressed = false;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await decompressServerFile(identifier, "/home/container", filename);
+      decompressed = true;
+      break;
+    } catch (decompErr: any) {
+      if (attempt < 3) {
+        console.warn(`[upload] Decompress attempt ${attempt}/3 failed:`, decompErr.message);
+        await new Promise(r => setTimeout(r, 3000));
+      } else {
+        throw new Error(`Décompression impossible après 3 tentatives : ${decompErr.message}`);
+      }
+    }
+  }
+
+  // ── Cleanup ZIP ──────────────────────────────────────────────────
+  if (decompressed) {
+    try {
+      await deleteServerFiles(identifier, "/home/container", [filename]);
+    } catch { /* non-fatal */ }
   }
 }
 
