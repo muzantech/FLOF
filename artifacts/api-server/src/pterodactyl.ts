@@ -509,7 +509,7 @@ export async function switchServerEgg(
         environment: newEnv,
         egg: config.eggId,
         image: config.dockerImage,
-        skip_scripts: false,
+        skip_scripts: true, // Skip install script — Docker image already has runtime pre-installed
       }),
     });
 

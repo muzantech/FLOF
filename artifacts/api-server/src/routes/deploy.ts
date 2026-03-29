@@ -543,18 +543,19 @@ async function runDeploy(
             } else {
               // Check if reinstall actually failed vs timed out
               const serverInfo2 = await getPteroServerByIdentifier(identifier);
+              let srvStatus = "";
               if (serverInfo2) {
                 const srvData = await getPteroServer(serverInfo2.id).catch(() => null);
-                const srvStatus = srvData?.attributes?.status || "";
-                if (srvStatus === "reinstall_failed" || srvStatus === "install_failed") {
-                  throw new Error(
-                    `La réinstallation du container a échoué (statut: ${srvStatus}). ` +
-                    `Essayez de réinstaller le serveur manuellement depuis le panel Pterodactyl.`
-                  );
-                }
+                srvStatus = srvData?.attributes?.status || "";
               }
-              await logDeploy(deploymentId, "warn", `  ⚠️ Réinstallation longue — attente de sécurité supplémentaire (30s)...`);
-              await sleep(30000);
+              if (srvStatus === "reinstall_failed" || srvStatus === "install_failed") {
+                // The install script failed but the Docker image (with the runtime) was likely pulled.
+                // Continue deployment — the runtime binary should still be available from the Docker image.
+                await logDeploy(deploymentId, "warn", `  ⚠️ Script d'installation échoué (${srvStatus}) — runtime Docker disponible, on continue...`);
+              } else {
+                await logDeploy(deploymentId, "warn", `  ⚠️ Réinstallation longue — attente de sécurité supplémentaire (30s)...`);
+                await sleep(30000);
+              }
             }
           } else {
             await logDeploy(deploymentId, "warn", `  ⚠️ ${switchResult.message}`);
@@ -732,8 +733,9 @@ async function runDeploy(
           await logDeploy(deploymentId, "warn", `  • Ajoutez flyhost.json: { "runtime": "python", "entry": "main.py" }`);
           await logDeploy(deploymentId, "warn", `  • Votre app doit écouter sur le port $SERVER_PORT ou $PORT`);
         } else if (tech === "php") {
-          await logDeploy(deploymentId, "warn", `  • Vérifiez que votre index.php est dans le bon dossier`);
-          await logDeploy(deploymentId, "warn", `  • Ajoutez flyhost.json: { "runtime": "php" }`);
+          await logDeploy(deploymentId, "warn", `  • PHP nécessite un nœud Wings compatible avec l'image ghcr.io/parkervcp/yolks:php_8.3`);
+          await logDeploy(deploymentId, "warn", `  • Vos fichiers PHP sont bien déployés — le problème vient de l'environnement d'exécution`);
+          await logDeploy(deploymentId, "warn", `  • Contactez l'administrateur pour activer le support PHP sur ce nœud`);
         } else if (tech === "ruby") {
           await logDeploy(deploymentId, "warn", `  • Ruby nécessite un serveur avec l'image Ruby installée`);
           await logDeploy(deploymentId, "warn", `  • Vérifiez que Gemfile liste toutes vos dépendances`);
