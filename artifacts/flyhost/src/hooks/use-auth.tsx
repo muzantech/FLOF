@@ -12,6 +12,7 @@ export interface User {
   coins?: number;
   referralCode?: string | null;
   onboardingDone?: boolean;
+  emailVerified?: boolean;
   createdAt: string;
 }
 

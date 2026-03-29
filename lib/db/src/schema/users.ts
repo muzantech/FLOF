@@ -18,8 +18,13 @@ export const usersTable = pgTable("users", {
   // Streak & daily reward
   streakDays: integer("streak_days").notNull().default(0),
   lastDailyClaim: timestamp("last_daily_claim", { withTimezone: true }),
-  // Extended profile
+  // Email verification
   emailVerified: boolean("email_verified").notNull().default(false),
+  verificationCode: text("verification_code"),
+  verificationExpires: timestamp("verification_expires", { withTimezone: true }),
+  // Password reset
+  resetCode: text("reset_code"),
+  resetCodeExpires: timestamp("reset_code_expires", { withTimezone: true }),
   whatsappNumber: text("whatsapp_number"),
   telegramChatId: text("telegram_chat_id"),
   discordWebhook: text("discord_webhook"),

@@ -115,6 +115,38 @@ export const emailTemplates = {
     `,
   }),
 
+  verificationEmail: (name: string, code: string) => ({
+    subject: `🔐 Vérifiez votre adresse email — FlyHost`,
+    html: `
+      <div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#09090B;color:#FAFAFA;padding:32px;border-radius:16px">
+        <div style="font-size:28px;font-weight:800;margin-bottom:24px;color:#FACC15">FlyHost</div>
+        <h2 style="color:#FAFAFA;margin-bottom:8px">Vérifiez votre adresse email</h2>
+        <p style="color:#A1A1AA;margin-bottom:24px">Bonjour <strong style="color:#FAFAFA">${name}</strong>, utilisez ce code pour confirmer votre adresse email :</p>
+        <div style="background:#18181B;border:1px solid #3F3F46;border-radius:12px;padding:24px;text-align:center;margin-bottom:24px">
+          <div style="font-size:36px;font-weight:800;letter-spacing:8px;color:#FACC15;font-family:monospace">${code}</div>
+          <div style="color:#71717A;font-size:13px;margin-top:8px">Ce code expire dans <strong>15 minutes</strong></div>
+        </div>
+        <p style="color:#71717A;font-size:13px">Si vous n'avez pas créé de compte sur FlyHost, ignorez cet email.</p>
+      </div>
+    `,
+  }),
+
+  resetPasswordEmail: (name: string, code: string) => ({
+    subject: `🔑 Réinitialisez votre mot de passe — FlyHost`,
+    html: `
+      <div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#09090B;color:#FAFAFA;padding:32px;border-radius:16px">
+        <div style="font-size:28px;font-weight:800;margin-bottom:24px;color:#FACC15">FlyHost</div>
+        <h2 style="color:#FAFAFA;margin-bottom:8px">Réinitialisation de mot de passe</h2>
+        <p style="color:#A1A1AA;margin-bottom:24px">Bonjour <strong style="color:#FAFAFA">${name}</strong>, utilisez ce code pour réinitialiser votre mot de passe :</p>
+        <div style="background:#18181B;border:1px solid #3F3F46;border-radius:12px;padding:24px;text-align:center;margin-bottom:24px">
+          <div style="font-size:36px;font-weight:800;letter-spacing:8px;color:#FACC15;font-family:monospace">${code}</div>
+          <div style="color:#71717A;font-size:13px;margin-top:8px">Ce code expire dans <strong>15 minutes</strong></div>
+        </div>
+        <p style="color:#71717A;font-size:13px">Si vous n'avez pas demandé cette réinitialisation, ignorez cet email. Votre mot de passe ne sera pas modifié.</p>
+      </div>
+    `,
+  }),
+
   cpuAlert: (serverName: string, cpu: number) => ({
     subject: `🔥 Alerte CPU — ${serverName} à ${cpu.toFixed(1)}%`,
     html: `

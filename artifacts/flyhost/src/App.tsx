@@ -9,6 +9,8 @@ import LandingPage from "@/pages/landing";
 import LoginPage from "@/pages/login";
 import RegisterPage from "@/pages/register";
 import DashboardPage from "@/pages/dashboard";
+import VerifyEmailPage from "@/pages/verify-email";
+import ForgotPasswordPage from "@/pages/forgot-password";
 import ProjectsPage from "@/pages/projects";
 import ProjectDetailPage from "@/pages/project-detail";
 import DeploymentDetailPage from "@/pages/deployment-detail";
@@ -98,6 +100,10 @@ function Router() {
       <Route path="/servers"><ProtectedRoute component={ServersPage} /></Route>
       <Route path="/servers/:identifier"><ProtectedRoute component={ServerDetailPage} /></Route>
       
+      {/* Auth utility routes (public) */}
+      <Route path="/verify-email"><ProtectedRoute component={VerifyEmailPage} /></Route>
+      <Route path="/forgot-password" component={ForgotPasswordPage} />
+
       {/* Public Routes */}
       <Route path="/status" component={StatusPage} />
       <Route path="/docs" component={DocsPage} />
