@@ -1,4 +1,4 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -19,10 +19,14 @@ import {
   BookOpen,
   Shield,
   Coins,
-  ChevronRight,
   X,
   Bell,
   Server,
+  CheckCheck,
+  Info,
+  AlertTriangle,
+  CheckCircle2,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -56,6 +60,135 @@ const resourceNavItems = [
   { href: "/docs", label: "Documentation", icon: BookOpen },
 ];
 
+interface Notification {
+  id: number;
+  type: string;
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: string;
+  metadata?: any;
+}
+
+function notifIcon(type: string) {
+  if (type === "server_start" || type === "server_stop") return <Zap className="w-3.5 h-3.5 text-yellow-400" />;
+  if (type === "warning" || type === "server_crash") return <AlertTriangle className="w-3.5 h-3.5 text-orange-400" />;
+  if (type === "success" || type === "referral") return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />;
+  return <Info className="w-3.5 h-3.5 text-blue-400" />;
+}
+
+function timeAgo(dateStr: string) {
+  const d = new Date(dateStr);
+  const now = Date.now();
+  const diff = Math.floor((now - d.getTime()) / 1000);
+  if (diff < 60) return "À l'instant";
+  if (diff < 3600) return `il y a ${Math.floor(diff / 60)}min`;
+  if (diff < 86400) return `il y a ${Math.floor(diff / 3600)}h`;
+  return `il y a ${Math.floor(diff / 86400)}j`;
+}
+
+function NotificationBell({ userId }: { userId?: number }) {
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unread, setUnread] = useState(0);
+  const [open, setOpen] = useState(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  async function fetchNotifs() {
+    try {
+      const res = await fetch("/api/notifications");
+      if (res.ok) {
+        const d = await res.json();
+        setNotifications(d.notifications || []);
+        setUnread(d.unreadCount || 0);
+      }
+    } catch {}
+  }
+
+  async function markAllRead() {
+    try {
+      await fetch("/api/notifications/read-all", { method: "POST" });
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      setUnread(0);
+    } catch {}
+  }
+
+  async function markRead(id: number) {
+    try {
+      await fetch(`/api/notifications/${id}/read`, { method: "POST" });
+      setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
+      setUnread((prev) => Math.max(0, prev - 1));
+    } catch {}
+  }
+
+  useEffect(() => {
+    if (!userId) return;
+    fetchNotifs();
+    intervalRef.current = setInterval(fetchNotifs, 30000);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [userId]);
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-white relative">
+          <Bell className="w-4 h-4" />
+          {unread > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-[10px] font-bold text-white flex items-center justify-center leading-none">
+              {unread > 9 ? "9+" : unread}
+            </span>
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="w-80 bg-[#111] border-zinc-800 p-0" align="end">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
+          <span className="text-sm font-semibold text-white">Notifications</span>
+          {unread > 0 && (
+            <button
+              onClick={markAllRead}
+              className="flex items-center gap-1 text-xs text-zinc-400 hover:text-white transition-colors"
+            >
+              <CheckCheck className="w-3 h-3" /> Tout lire
+            </button>
+          )}
+        </div>
+        <div className="max-h-[360px] overflow-y-auto">
+          {notifications.length === 0 ? (
+            <div className="py-10 text-center">
+              <Bell className="w-8 h-8 text-zinc-700 mx-auto mb-2" />
+              <p className="text-xs text-zinc-500">Aucune notification</p>
+            </div>
+          ) : (
+            notifications.slice(0, 10).map((n) => (
+              <button
+                key={n.id}
+                onClick={() => { if (!n.read) markRead(n.id); }}
+                className={`w-full text-left px-4 py-3 border-b border-zinc-800/60 flex items-start gap-3 hover:bg-white/4 transition-colors ${!n.read ? "bg-yellow-400/4" : ""}`}
+              >
+                <div className={`mt-0.5 w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${!n.read ? "bg-yellow-400/10" : "bg-zinc-800"}`}>
+                  {notifIcon(n.type)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-xs font-semibold leading-snug ${!n.read ? "text-white" : "text-zinc-300"}`}>{n.title}</p>
+                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed line-clamp-2">{n.message}</p>
+                  <p className="text-[10px] text-zinc-600 mt-1">{timeAgo(n.createdAt)}</p>
+                </div>
+                {!n.read && <div className="w-2 h-2 rounded-full bg-yellow-400 flex-shrink-0 mt-1.5" />}
+              </button>
+            ))
+          )}
+        </div>
+        {notifications.length > 0 && (
+          <div className="px-4 py-2.5 border-t border-zinc-800">
+            <Link href="/history" onClick={() => setOpen(false)} className="text-xs text-zinc-400 hover:text-yellow-400 transition-colors">
+              Voir tout l'historique →
+            </Link>
+          </div>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function AppLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const [location] = useLocation();
@@ -85,7 +218,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-[#09090B] flex flex-col relative">
-      {/* Animated orb background */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
         <div className="absolute -top-[30%] -left-[20%] w-[70%] h-[70%] rounded-full bg-yellow-400/3 blur-[120px]" />
         <div className="absolute -bottom-[30%] -right-[20%] w-[60%] h-[60%] rounded-full bg-yellow-400/2 blur-[120px]" />
@@ -93,13 +225,13 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
       {/* Top Navbar */}
       <header className="sticky top-0 z-50 w-full border-b border-yellow-400/10 bg-[#09090B]/90 backdrop-blur-xl">
-        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 h-14 flex items-center justify-between gap-2 sm:gap-4">
           {/* Logo */}
-          <Link href="/dashboard" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity flex-shrink-0">
+          <Link href="/dashboard" className="flex items-center gap-2 sm:gap-2.5 hover:opacity-80 transition-opacity flex-shrink-0">
             <div className="w-7 h-7 rounded-md bg-yellow-400 flex items-center justify-center">
               <Triangle className="w-3.5 h-3.5 fill-black text-black" />
             </div>
-            <span className="font-bold text-lg tracking-tight text-white">FlyHost</span>
+            <span className="font-bold text-base sm:text-lg tracking-tight text-white">FlyHost</span>
           </Link>
 
           {/* Desktop Nav */}
@@ -120,7 +252,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             })}
           </nav>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             {/* Coins Badge */}
             {user && (
               <Link href="/subscription">
@@ -132,10 +264,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
               </Link>
             )}
 
-            {/* Notification Bell (visual) */}
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-white">
-              <Bell className="w-4 h-4" />
-            </Button>
+            {/* Functional Notification Bell */}
+            {user && <NotificationBell userId={(user as any)?.id} />}
 
             {/* User Dropdown */}
             <DropdownMenu>
@@ -156,9 +286,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
                     <div className="w-9 h-9 rounded-full bg-yellow-400/10 flex items-center justify-center border border-yellow-400/20">
                       <span className="text-sm font-bold text-yellow-400">{user?.name?.charAt(0)?.toUpperCase()}</span>
                     </div>
-                    <div>
-                      <p className="text-sm font-semibold text-white leading-none">{user?.name}</p>
-                      <p className="text-xs text-zinc-400 mt-0.5">{user?.email}</p>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-white leading-none truncate">{user?.name}</p>
+                      <p className="text-xs text-zinc-400 mt-0.5 truncate">{user?.email}</p>
                     </div>
                   </div>
                   <div className="mt-2 flex items-center gap-1.5 text-xs text-yellow-400/80">
@@ -226,7 +356,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
             onClick={() => setDrawerOpen(false)}
           />
           <div className="absolute left-0 top-0 h-full w-[280px] bg-[#0f0f0f] border-r border-yellow-400/10 flex flex-col overflow-y-auto">
-            {/* Drawer Header */}
             <div className="flex items-center justify-between p-4 border-b border-yellow-400/10">
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-md bg-yellow-400 flex items-center justify-center">
@@ -239,15 +368,14 @@ export function AppLayout({ children }: { children: ReactNode }) {
               </Button>
             </div>
 
-            {/* User info */}
             <div className="p-4 border-b border-zinc-800/50">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-10 h-10 rounded-full bg-yellow-400/10 border border-yellow-400/20 flex items-center justify-center">
                   <span className="text-sm font-bold text-yellow-400">{user?.name?.charAt(0)?.toUpperCase()}</span>
                 </div>
-                <div>
-                  <p className="text-sm font-semibold text-white">{user?.name}</p>
-                  <p className="text-xs text-zinc-400">{user?.email}</p>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-white truncate">{user?.name}</p>
+                  <p className="text-xs text-zinc-400 truncate">{user?.email}</p>
                 </div>
               </div>
               <div className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-yellow-400/5 border border-yellow-400/15">
@@ -256,7 +384,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
               </div>
             </div>
 
-            {/* Navigation */}
             <nav className="flex-1 p-3 space-y-1">
               <p className="text-xs font-semibold text-zinc-600 uppercase tracking-wider px-3 mb-2">Navigation</p>
               {mainNavItems.map((item) => (
@@ -283,7 +410,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
               ) : null}
             </nav>
 
-            {/* Logout */}
             <div className="p-3 border-t border-zinc-800">
               <button
                 onClick={() => { setDrawerOpen(false); logout(); }}
@@ -300,12 +426,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
       {/* Low coins alert banner */}
       {user && (user as any).coins < 50 && (
         <div className="relative z-10 w-full border-b border-yellow-400/20 bg-yellow-400/8">
-          <div className="max-w-7xl mx-auto px-4 py-2 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm text-yellow-300">
+          <div className="max-w-7xl mx-auto px-3 sm:px-4 py-2 flex items-center justify-between gap-2 sm:gap-3">
+            <div className="flex items-center gap-2 text-xs sm:text-sm text-yellow-300 min-w-0">
               <Coins className="w-4 h-4 flex-shrink-0" />
-              <span>
-                Votre solde est bas (<strong>{(user as any).coins} coins</strong>).
-                Rechargez maintenant pour éviter la suspension de vos serveurs.
+              <span className="truncate">
+                Solde bas : <strong>{(user as any).coins} coins</strong> — rechargez pour éviter la suspension.
               </span>
             </div>
             <Link href="/subscription" className="flex-shrink-0">
@@ -318,7 +443,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       )}
 
       {/* Main Content */}
-      <main className="flex-1 relative z-10 max-w-7xl mx-auto w-full px-4 py-8">
+      <main className="flex-1 relative z-10 max-w-7xl mx-auto w-full px-3 sm:px-4 py-5 sm:py-8">
         {children}
       </main>
 
@@ -327,7 +452,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         href="https://whatsapp.com/channel/0029VahusSh0QeaoFzHJCk2x"
         target="_blank"
         rel="noreferrer"
-        className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-full shadow-2xl transition-all duration-300 hover:scale-105 hover:shadow-green-500/30"
+        className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 flex items-center gap-2 px-3 sm:px-4 py-2.5 sm:py-3 rounded-full shadow-2xl transition-all duration-300 hover:scale-105 hover:shadow-green-500/30"
         style={{ background: "#25D366", color: "#fff" }}
         title="Support WhatsApp"
       >

@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
 import { db, usersTable, coinTransactionsTable, deploymentsTable, deploymentLogsTable, serverSubdomainsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
+import { createNotification } from "./notifications";
 import { setCacheEntry, deleteCacheEntry } from "../subdomain-proxy";
 import { createSubdomainDNS, deleteSubdomainDNS } from "../cloudflare";
 import {
@@ -325,6 +326,17 @@ router.post("/servers/:id/power", requireAuth, async (req: AuthRequest, res): Pr
     }
     await sendPowerAction(identifier, action);
     res.json({ success: true, action });
+
+    const actionLabels: Record<string, { title: string; msg: string; type: string }> = {
+      start:   { title: "Serveur démarré ✅",    msg: `Le serveur ${identifier} a été démarré.`,     type: "server_start" },
+      stop:    { title: "Serveur arrêté 🔴",     msg: `Le serveur ${identifier} a été arrêté.`,     type: "server_stop" },
+      restart: { title: "Serveur redémarré 🔄",  msg: `Le serveur ${identifier} a redémarré.`,      type: "server_start" },
+      kill:    { title: "Serveur tué ⚡",         msg: `Le serveur ${identifier} a été forcé à l'arrêt.`, type: "server_stop" },
+    };
+    const lbl = actionLabels[action];
+    if (lbl && req.userId) {
+      createNotification(req.userId, lbl.type, lbl.title, lbl.msg, { identifier, action }).catch(() => {});
+    }
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
