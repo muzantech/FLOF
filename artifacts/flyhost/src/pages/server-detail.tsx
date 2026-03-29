@@ -39,6 +39,8 @@ import {
   CheckCircle2,
   ChevronLeft,
   Skull,
+  AlertTriangle,
+  Wrench,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────
@@ -1020,6 +1022,7 @@ export default function ServerDetailPage() {
   const [activeTab, setActiveTab] = useState<"console" | "files" | "deploy" | "startup" | "settings">("console");
   const [powerLoading, setPowerLoading] = useState(false);
   const [deletingServer, setDeletingServer] = useState(false);
+  const [fixingStartup, setFixingStartup] = useState(false);
   const { toast } = useToast();
 
   async function loadServer() {
@@ -1067,6 +1070,26 @@ export default function ServerDetailPage() {
       toast({ variant: "destructive", title: "Erreur", description: e.message });
     }
     setPowerLoading(false);
+  }
+
+  async function fixStartup() {
+    setFixingStartup(true);
+    try {
+      const res = await fetch(`/api/servers/${identifier}/fix-startup`, { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        toast({
+          title: "Démarrage réparé",
+          description: `Variables corrigées : ${data.applied?.join(", ")}`,
+        });
+        setTimeout(loadStats, 3000);
+      } else {
+        toast({ variant: "destructive", title: "Impossible de réparer", description: data.error });
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Erreur", description: e.message });
+    }
+    setFixingStartup(false);
   }
 
   async function deleteServer() {
@@ -1181,6 +1204,27 @@ export default function ServerDetailPage() {
             )}
           </div>
         </div>
+
+        {/* Crash repair banner — shown when server is offline */}
+        {!isRunning && currentState === "offline" && (
+          <div className="flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-lg border border-orange-500/30 bg-orange-500/5">
+            <AlertTriangle className="w-4 h-4 text-orange-400 flex-shrink-0" />
+            <span className="text-xs text-orange-300 flex-1">
+              Serveur hors ligne — si le démarrage échoue en boucle, la commande de démarrage est peut-être incorrecte.
+            </span>
+            <Button
+              size="sm"
+              onClick={fixStartup}
+              disabled={fixingStartup}
+              className="h-7 text-xs gap-1.5 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 border border-orange-500/30 flex-shrink-0"
+            >
+              {fixingStartup
+                ? <><Loader2 className="w-3 h-3 animate-spin" /> Réparation…</>
+                : <><Wrench className="w-3 h-3" /> Réparer le démarrage</>
+              }
+            </Button>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-1 p-1 rounded-xl border border-zinc-800 bg-zinc-900/50 flex-shrink-0">

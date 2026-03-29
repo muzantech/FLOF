@@ -596,6 +596,80 @@ router.get("/servers/:identifier/deployments", requireAuth, async (req: AuthRequ
   }
 });
 
+// ————————————————————————————————————————————
+//  POST /api/servers/:identifier/fix-startup
+//  Analyze files currently on server, detect correct entry point,
+//  reset Pterodactyl startup variables, and restart.
+// ————————————————————————————————————————————
+router.post("/servers/:identifier/fix-startup", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const { identifier } = req.params;
+
+  try {
+    // List root files on server
+    const fileData = await listServerFiles(identifier, "/");
+    const files: string[] = (fileData?.data || []).map((f: any) => f.attributes?.name || "");
+
+    // Detect tech
+    const fixes: string[] = [];
+    const updates: Record<string, string> = {};
+
+    if (files.includes("package.json")) {
+      // Node.js — find best entry file
+      let mainFile = "index.js";
+      const NODE_CANDIDATES = ["index.js", "app.js", "server.js", "main.js",
+                               "index.ts", "app.ts", "server.ts", "main.ts"];
+      const found = NODE_CANDIDATES.find(c => files.includes(c));
+      if (found) { mainFile = found; fixes.push(`Point d'entrée détecté : ${found}`); }
+      else { fixes.push(`Aucun fichier trouvé — défaut: index.js`); }
+      updates["MAIN_FILE"] = mainFile;
+      updates["USER_UPLOAD"] = "1";
+    } else if (files.includes("requirements.txt") || files.some(f => f.endsWith(".py"))) {
+      // Python
+      const PY_CANDIDATES = ["main.py", "app.py", "run.py", "server.py", "bot.py", "index.py"];
+      const found = PY_CANDIDATES.find(c => files.includes(c));
+      const pyFile = found || "main.py";
+      updates["PY_FILE"] = pyFile;
+      updates["REQUIREMENTS_FILE"] = "requirements.txt";
+      fixes.push(`Point d'entrée Python : ${pyFile}`);
+    } else if (files.some(f => f.endsWith(".jar"))) {
+      // Java
+      const jar = files.find(f => f.endsWith(".jar") && !/(sources|javadoc|test)/.test(f)) || "app.jar";
+      updates["JARFILE"] = jar;
+      fixes.push(`JAR détecté : ${jar}`);
+    } else if (files.includes("index.php") || files.includes("public")) {
+      // PHP
+      const docRoot = files.includes("public") ? "public" : ".";
+      updates["DOCUMENT_ROOT"] = docRoot;
+      fixes.push(`Document root PHP : ${docRoot}`);
+    }
+
+    if (Object.keys(updates).length === 0) {
+      res.status(422).json({ error: "Impossible de détecter la technologie du serveur", files });
+      return;
+    }
+
+    // Apply startup variable updates
+    const results: string[] = [];
+    for (const [key, value] of Object.entries(updates)) {
+      try {
+        await updateStartupVariable(identifier, key, value);
+        results.push(`${key} = ${value}`);
+      } catch {
+        results.push(`${key} — non applicable à cet egg`);
+      }
+    }
+
+    // Kill and restart
+    try { await sendPowerAction(identifier, "kill"); } catch {}
+    await new Promise(r => setTimeout(r, 2000));
+    try { await sendPowerAction(identifier, "start"); } catch {}
+
+    res.json({ ok: true, fixes, applied: results });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 function formatServer(s: any) {
   const a = s.attributes;
   return {
