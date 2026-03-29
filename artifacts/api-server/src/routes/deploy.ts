@@ -416,8 +416,12 @@ function checkSize(dir: string): void {
   }
 }
 
-function cleanExtracted(dir: string): void {
-  const REMOVE_DIRS = ["node_modules", ".git", "__pycache__", ".mypy_cache", "vendor", ".next", "dist", "build"];
+function cleanExtracted(dir: string, tech?: string): void {
+  // For static sites, keep dist/ and build/ (they ARE the deployable content)
+  const keepBuiltOutputs = tech === "static";
+  const REMOVE_DIRS = ["node_modules", ".git", "__pycache__", ".mypy_cache", "vendor", ".next",
+    ...(keepBuiltOutputs ? [] : ["dist", "build"]),
+  ];
   const REMOVE_FILES = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock", "Pipfile.lock"];
   function walk(d: string) {
     for (const e of fs.readdirSync(d)) {
@@ -441,7 +445,7 @@ async function runDeploy(
   deploymentId: number,
   identifier: string,
   srcDir: string,
-  opts: { envVars?: Record<string, string>; startCommand?: string; userId?: number | null }
+  opts: { envVars?: Record<string, string>; startCommand?: string; runtimeOverride?: string; userId?: number | null }
 ): Promise<void> {
   const start = Date.now();
 
@@ -472,10 +476,12 @@ async function runDeploy(
 
     // ── Full tech detection with mixed project support ──
     const techResult = detectTechFull(relFiles, srcDir);
-    // flyhost.json runtime field overrides auto-detection
-    const tech = flyhostConfig.runtime || techResult.primary;
+    // Priority order: opts.runtimeOverride > flyhost.json runtime > auto-detection
+    const tech = opts.runtimeOverride || flyhostConfig.runtime || techResult.primary;
 
-    if (flyhostConfig.runtime) {
+    if (opts.runtimeOverride) {
+      await logDeploy(deploymentId, "info", `Runtime: ${tech} (forcé manuellement via interface)`);
+    } else if (flyhostConfig.runtime) {
       await logDeploy(deploymentId, "info", `Runtime: ${tech} (défini dans flyhost.json)`);
     } else {
       await logDeploy(deploymentId, "info", `Runtime détecté: ${tech} (confiance: ${techResult.isMixed ? "mixte" : "haute"})`);
@@ -541,8 +547,8 @@ async function runDeploy(
       }
     }
 
-    // Clean up heavy dirs
-    cleanExtracted(srcDir);
+    // Clean up heavy dirs (keep dist/build for static sites — they are the content)
+    cleanExtracted(srcDir, tech);
     await logDeploy(deploymentId, "info", `Nettoyage des fichiers inutiles (node_modules, .git, etc.)`);
 
     // Check size
@@ -1310,13 +1316,15 @@ const upload = multer({
 
 router.post("/deploy/zip", requireAuth, upload.single("file"), async (req: AuthRequest, res): Promise<void> => {
   const zipFile = req.file;
-  const { identifier, envVars: envVarsRaw } = req.body;
+  const { identifier, envVars: envVarsRaw, runtimeOverride: runtimeOverrideRaw } = req.body;
 
   if (!zipFile) { res.status(400).json({ error: "Fichier ZIP requis" }); return; }
   if (!identifier) { res.status(400).json({ error: "Identifiant de serveur requis" }); return; }
 
   let envVars: Record<string, string> = {};
   try { envVars = envVarsRaw ? JSON.parse(envVarsRaw) : {}; } catch { /* ignore */ }
+
+  const runtimeOverride = VALID_RUNTIMES.has(runtimeOverrideRaw) ? runtimeOverrideRaw as string : undefined;
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "flyhost-"));
 
@@ -1338,7 +1346,7 @@ router.post("/deploy/zip", requireAuth, upload.single("file"), async (req: AuthR
     const srcDir = flattenIfNeeded(tmpDir);
 
     // Run deploy pipeline asynchronously
-    runDeploy(deployment.id, identifier, srcDir, { envVars, userId: req.userId ?? null }).finally(() => {
+    runDeploy(deployment.id, identifier, srcDir, { envVars, runtimeOverride, userId: req.userId ?? null }).finally(() => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
       fs.rmSync(zipFile.path, { force: true });
     });
@@ -1355,7 +1363,8 @@ router.post("/deploy/zip", requireAuth, upload.single("file"), async (req: AuthR
 //  Route: POST /api/deploy/github
 // ————————————————————————————————————————————
 router.post("/deploy/github", requireAuth, async (req: AuthRequest, res): Promise<void> => {
-  const { identifier, gitUrl, branch = "main", envVars = {}, startCommand } = req.body;
+  const { identifier, gitUrl, branch = "main", envVars = {}, startCommand, runtimeOverride: runtimeOverrideRaw } = req.body;
+  const runtimeOverride = VALID_RUNTIMES.has(runtimeOverrideRaw) ? runtimeOverrideRaw as string : undefined;
 
   if (!identifier) { res.status(400).json({ error: "Identifiant de serveur requis" }); return; }
   if (!gitUrl || typeof gitUrl !== "string") { res.status(400).json({ error: "URL Git requise" }); return; }
@@ -1400,7 +1409,7 @@ router.post("/deploy/github", requireAuth, async (req: AuthRequest, res): Promis
           await logDeploy(deployment.id, "info", `Commit : ${commitHash.trim().substring(0, 7)} — ${commitMsg.trim().substring(0, 60)}`);
         } catch { /* non-fatal */ }
 
-        await runDeploy(deployment.id, identifier, tmpDir, { envVars, startCommand, userId: deployment.userId ?? null });
+        await runDeploy(deployment.id, identifier, tmpDir, { envVars, startCommand, runtimeOverride, userId: deployment.userId ?? null });
       } finally {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       }

@@ -407,6 +407,9 @@ export async function updateServerEnvViaAppAPI(
 
 /** Build the correct Node.js startup command for a Pterodactyl Node egg */
 export function buildNodeStartup(mainFile: string): string {
+  if (mainFile.endsWith(".ts") || mainFile.endsWith(".mts")) {
+    return `if [ -f /home/container/package.json ]; then /usr/local/bin/npm install --prefer-offline --no-audit --no-fund --maxsockets 2 2>&1 || true; fi; if npx --yes tsx --version &>/dev/null 2>&1; then npx tsx "/home/container/${mainFile}"; elif npx --yes ts-node --version &>/dev/null 2>&1; then npx ts-node "/home/container/${mainFile}"; else /usr/local/bin/node "/home/container/${mainFile}"; fi`;
+  }
   return `if [ -f /home/container/package.json ]; then /usr/local/bin/npm install --prefer-offline --no-audit --no-fund --maxsockets 2 2>&1 || true; fi; /usr/local/bin/node "/home/container/${mainFile}"`;
 }
 

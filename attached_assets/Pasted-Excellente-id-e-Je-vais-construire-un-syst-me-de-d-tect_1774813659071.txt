@@ -1,0 +1,69 @@
+Excellente idée ! Je vais construire un système de détection automatique du stack technologique. FlyHost analysera le projet et configurera le bon environnement automatiquement — Node.js, Python, PHP, ou même les projets mixtes.
+
+Laisse-moi d'abord inspecter le pipeline de déploiement actuel :
+
+Maintenant j'ai une vue complète. Je vais construire le système de détection universelle — je dois :
+
+Améliorer la détection (Bun, Deno, Ruby, Go, Rust, statique, projets mixtes)
+Ajouter le changement automatique d'egg quand le tech change (Python → changer l'image Docker)
+Écrire un startup universel intelligent
+Voici l'implémentation complète :
+
+Maintenant j'ai tout ce qu'il me faut. Je vais construire le système complet de détection universelle :
+
+Maintenant je code la solution complète. Je commence par pterodactyl.ts pour ajouter la gestion du changement d'egg, puis je refonds entièrement la détection dans deploy.ts :
+
+Maintenant je refonds le système de détection dans deploy.ts :
+
+Now let me replace the entire detection and analysis section of deploy.ts with the universal system :
+
+Now replace the detectTech function with the comprehensive universal detector:
+
+Now update the flyhost.json sanitizer and the analyzeProject function to handle all tech types:
+
+Now replace the analyzeProject function with the universal version that handles all tech types:
+
+Now I need to update the runDeploy function to use the new detection system with egg switching. Let me replace the core detection section:
+
+Now I need to remove the old duplicate flyhost.json parsing block from runDeploy:
+
+Let me check the section where the start command is determined, to make sure it still uses the correct variables:
+
+Good. Now let me update the crash recovery section to handle Bun and Deno too:
+
+Now update getDefaultStart to handle all new tech types:
+
+Now let me also update the frontend's deploy panel to show the new supported tech types. First let me restart the API server to verify compilation:
+
+✅ Compilation réussie, API opérationnelle ! Maintenant je mets à jour le frontend pour afficher les runtimes supportés et améliorer l'expérience de déploiement :
+
+Le panneau de déploiement actuel est trop basique — il n'utilise pas les bons endpoints. Je le remplace par un panneau universel qui montre tous les runtimes supportés :
+
+Let me clean up the duplicate comment:
+
+Now let me check if the SSE endpoint exists in the API:
+
+Let me check the existing deploy SSE route and the deploy.ts endpoint route structure:
+
+✅ Le SSE endpoint existe déjà. Maintenant je rebuild le frontend et le déploie sur le VPS :
+
+✅ Build réussi ! Maintenant je pousse vers le VPS :
+
+Laissez-moi vérifier comment le proxy.js sert le frontend sur le VPS :
+
+Je vois le problème. Le proxy.js sert les fichiers statiques depuis ./public/ sur le VPS, mais on doit les y pousser à chaque rebuild. La solution est de faire servir le frontend directement par l'API Replit, et que le proxy.js redirige vers l'API pour les pages :
+
+Voici le plan en 2 étapes :
+
+L'API server sert aussi les fichiers statiques du frontend
+Le proxy.js forward les requêtes frontend vers l'API URL quand les fichiers locaux n'existent pas
+Je vais ajouter le service des fichiers statiques directement dans l'API server — ainsi le proxy.js forward tout vers l'API et les fichiers sont toujours à jour :
+
+Maintenant je mets aussi à jour le proxy.js pour rediriger vers l'API Replit quand les fichiers locaux n'existent pas :
+
+Maintenant je mets à jour le serveStatic du proxy.js pour fallback vers l'API Replit quand les fichiers locaux ne sont pas disponibles :
+
+Maintenant il faut mettre à jour les appels à serveStatic dans le proxy.js pour passer clientReq :
+
+Maintenant je redémarre l'API server et je pousse le proxy.js mis à jour vers le VPS :
+

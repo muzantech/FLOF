@@ -98,6 +98,7 @@ export default function DeployPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [envVars, setEnvVars] = useState<{ key: string; value: string }[]>([]);
+  const [runtimeOverride, setRuntimeOverride] = useState<string>("auto");
 
   const [deploying, setDeploying] = useState(false);
   const [deploymentId, setDeploymentId] = useState<number | null>(null);
@@ -186,18 +187,20 @@ export default function DeployPage() {
     const ev: Record<string, string> = {};
     envVars.filter(v => v.key.trim()).forEach(v => { ev[v.key.trim()] = v.value; });
     try {
+      const rtOverride = runtimeOverride !== "auto" ? runtimeOverride : undefined;
       let res: Response;
       if (method === "zip") {
         const fd = new FormData();
         fd.append("file", zipFile!);
         fd.append("identifier", selectedServer.identifier);
         fd.append("envVars", JSON.stringify(ev));
+        if (rtOverride) fd.append("runtimeOverride", rtOverride);
         res = await fetch("/api/deploy/zip", { method: "POST", body: fd });
       } else {
         res = await fetch("/api/deploy/github", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier: selectedServer.identifier, gitUrl: gitUrl.trim(), branch: branch || "main", startCommand: startCommand.trim() || undefined, envVars: ev }),
+          body: JSON.stringify({ identifier: selectedServer.identifier, gitUrl: gitUrl.trim(), branch: branch || "main", startCommand: startCommand.trim() || undefined, envVars: ev, runtimeOverride: rtOverride }),
         });
       }
       const data = await res.json();
@@ -368,9 +371,20 @@ export default function DeployPage() {
 
           {step === 1 && (
             <div style={{ maxWidth: "560px" }}>
-              <p style={{ color: Muted, fontSize: "13px", marginBottom: "24px" }}>
+              <p style={{ color: Muted, fontSize: "13px", marginBottom: "20px" }}>
                 Déploiement sur <span style={{ color: Y, fontWeight: 700 }}>{selectedServer?.name.replace(/\s*\[FH-\d+\]/, "")}</span> — choisissez la source de votre code
               </p>
+
+              <div style={{ background: Ydim, border: `1.5px solid ${Yborder}`, borderRadius: "12px", padding: "12px 16px", marginBottom: "20px", display: "flex", alignItems: "flex-start", gap: "10px" }}>
+                <span style={{ fontSize: "18px", flexShrink: 0 }}>🤖</span>
+                <div>
+                  <div style={{ fontSize: "13px", fontWeight: 700, color: Y, marginBottom: "4px" }}>Détection automatique de runtime</div>
+                  <div style={{ fontSize: "12px", color: Sub, lineHeight: "1.5" }}>
+                    FlyHost détecte automatiquement votre langage et framework. Supporté&nbsp;:
+                    <span style={{ color: Text, fontWeight: 600 }}> Node.js · TypeScript · Python · PHP · Java · Ruby · Go · Bun · Deno · HTML statique</span>
+                  </div>
+                </div>
+              </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "24px" }}>
                 {([["github", "🐙", "GitHub / Git", "Clone depuis un dépôt public ou privé"], ["zip", "📦", "Fichier ZIP", "Uploadez une archive .zip de votre projet"]] as [typeof method, string, string, string][]).map(([m, ico, title, desc]) => (
@@ -444,8 +458,40 @@ export default function DeployPage() {
           {step === 2 && (
             <div style={{ maxWidth: "560px" }}>
               <p style={{ color: Muted, fontSize: "13px", marginBottom: "24px" }}>
-                Variables d'environnement et configuration avancée pour <span style={{ color: Y, fontWeight: 700 }}>{selectedServer?.name.replace(/\s*\[FH-\d+\]/, "")}</span>
+                Configuration pour <span style={{ color: Y, fontWeight: 700 }}>{selectedServer?.name.replace(/\s*\[FH-\d+\]/, "")}</span>
               </p>
+
+              <div style={{ background: Sur2, border: "1.5px solid rgba(255,255,255,0.07)", borderRadius: "14px", padding: "20px", marginBottom: "16px" }}>
+                <div style={{ fontSize: "13px", fontWeight: 700, color: Sub, marginBottom: "14px" }}>⚡ Runtime</div>
+                <div style={{ marginBottom: "10px" }}>
+                  <label style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.6px", color: Muted, display: "block", marginBottom: "8px" }}>Environnement d'exécution</label>
+                  <select
+                    value={runtimeOverride}
+                    onChange={e => setRuntimeOverride(e.target.value)}
+                    style={{ width: "100%", padding: "11px 14px", boxSizing: "border-box" as const, background: "rgba(255,255,255,0.05)", border: "1.5px solid rgba(255,255,255,0.09)", borderRadius: "10px", color: Text, fontFamily: "inherit", fontSize: "14px", outline: "none", cursor: "pointer" }}
+                  >
+                    <option value="auto">🤖 Détection automatique (recommandé)</option>
+                    <optgroup label="Web & APIs">
+                      <option value="nodejs">⬡ Node.js (JavaScript / TypeScript)</option>
+                      <option value="bun">🍞 Bun</option>
+                      <option value="deno">🦕 Deno</option>
+                      <option value="python">🐍 Python (Flask / Django / FastAPI / ...)</option>
+                      <option value="php">🐘 PHP (Laravel / WordPress / Symfony)</option>
+                      <option value="java">☕ Java (Maven / Gradle)</option>
+                      <option value="ruby">💎 Ruby (Rails / Sinatra)</option>
+                      <option value="go">🐹 Go</option>
+                    </optgroup>
+                    <optgroup label="Autres">
+                      <option value="static">🌐 Site statique (HTML/CSS/JS)</option>
+                    </optgroup>
+                  </select>
+                </div>
+                {runtimeOverride === "auto" && (
+                  <p style={{ fontSize: "12px", color: Muted, margin: 0 }}>
+                    FlyHost analyse automatiquement votre projet (package.json, requirements.txt, go.mod, Gemfile, pom.xml, etc.) pour choisir le bon environnement.
+                  </p>
+                )}
+              </div>
 
               <div style={{ background: Sur2, border: "1.5px solid rgba(255,255,255,0.07)", borderRadius: "14px", padding: "20px", marginBottom: "16px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
@@ -475,6 +521,7 @@ export default function DeployPage() {
                     ["Identifiant", selectedServer?.identifier ?? "—"],
                     ["Source", method === "github" ? `GitHub — ${gitUrl || "—"}` : `ZIP — ${zipFile?.name || "—"}`],
                     ["Branche", method === "github" ? (branch || "main") : "—"],
+                    ["Runtime", runtimeOverride === "auto" ? "Détection auto" : runtimeOverride],
                     ["Variables", `${envVars.filter(v => v.key.trim()).length} variable(s)`],
                   ].map(([k, val]) => (
                     <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
