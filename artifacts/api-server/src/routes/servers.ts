@@ -598,73 +598,144 @@ router.get("/servers/:identifier/deployments", requireAuth, async (req: AuthRequ
 
 // ————————————————————————————————————————————
 //  POST /api/servers/:identifier/fix-startup
-//  Analyze files currently on server, detect correct entry point,
-//  reset Pterodactyl startup variables, and restart.
+//  Deep analysis of server files (reads package.json, requirements.txt, etc.),
+//  detects correct entry point, clears corrupted NODE_ARGS / PY_ARGS, restarts.
 // ————————————————————————————————————————————
 router.post("/servers/:identifier/fix-startup", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   const { identifier } = req.params;
 
   try {
-    // List root files on server
+    // 1 — list root files on server
     const fileData = await listServerFiles(identifier, "/");
-    const files: string[] = (fileData?.data || []).map((f: any) => f.attributes?.name || "");
+    const files: string[] = (fileData?.data || []).map((f: any) => f.attributes?.name || "").filter(Boolean);
 
-    // Detect tech
     const fixes: string[] = [];
     const updates: Record<string, string> = {};
 
     if (files.includes("package.json")) {
-      // Node.js — find best entry file
-      let mainFile = "index.js";
-      const NODE_CANDIDATES = ["index.js", "app.js", "server.js", "main.js",
-                               "index.ts", "app.ts", "server.ts", "main.ts"];
-      const found = NODE_CANDIDATES.find(c => files.includes(c));
-      if (found) { mainFile = found; fixes.push(`Point d'entrée détecté : ${found}`); }
-      else { fixes.push(`Aucun fichier trouvé — défaut: index.js`); }
+      // ── Node.js ────────────────────────────────────────────────────────
+      fixes.push(`package.json trouvé → projet Node.js`);
+
+      // Read and parse package.json from the server
+      let mainFile = "";
+      try {
+        const raw = await getFileContents(identifier, "/package.json");
+        const pkg = typeof raw === "string" ? JSON.parse(raw) : raw;
+
+        // Priority: main → scripts.start → scan
+        if (pkg.main) {
+          mainFile = pkg.main;
+          fixes.push(`"main" dans package.json → ${mainFile}`);
+        } else if (pkg.scripts?.start) {
+          const s: string = pkg.scripts.start;
+          const m = s.match(/(?:node|ts-node|tsx|bun)\s+(?:--[^\s]+\s+)*([^\s]+\.(?:js|ts|mjs|cjs))/);
+          if (m) {
+            mainFile = m[1];
+            fixes.push(`scripts.start: "${s}" → ${mainFile}`);
+          } else if (s.includes("index.js")) {
+            mainFile = "index.js";
+          }
+        }
+      } catch {
+        fixes.push(`Impossible de lire package.json — scan des fichiers`);
+      }
+
+      // Fallback: scan visible files
+      if (!mainFile) {
+        const NODE_CANDIDATES = [
+          "index.js", "app.js", "server.js", "main.js", "bot.js",
+          "index.ts", "app.ts", "server.ts", "main.ts",
+          "src/index.js", "src/app.js",
+        ];
+        const found = NODE_CANDIDATES.find(c => {
+          const top = c.split("/")[0];
+          return files.includes(c) || files.includes(top);
+        });
+        if (found) {
+          mainFile = found;
+          fixes.push(`Point d'entrée détecté par scan : ${found}`);
+        } else {
+          mainFile = "index.js";
+          fixes.push(`Aucun fichier trouvé — défaut: index.js`);
+        }
+      }
+
       updates["MAIN_FILE"] = mainFile;
       updates["USER_UPLOAD"] = "1";
+
+      // CRITICAL: Clear NODE_ARGS — pm2 flags like --deep-monitoring --attach --name
+      // are passed as NODE_ARGS and break the `node ${NODE_ARGS} ${MAIN_FILE}` template
+      updates["NODE_ARGS"] = "";
+      fixes.push(`NODE_ARGS vidé (suppression des flags pm2 invalides)`);
+
     } else if (files.includes("requirements.txt") || files.some(f => f.endsWith(".py"))) {
-      // Python
-      const PY_CANDIDATES = ["main.py", "app.py", "run.py", "server.py", "bot.py", "index.py"];
+      // ── Python ─────────────────────────────────────────────────────────
+      fixes.push(`requirements.txt / .py trouvé → projet Python`);
+
+      // Read requirements.txt
+      let requirements = "";
+      try { requirements = (await getFileContents(identifier, "/requirements.txt") as string || "").toLowerCase(); } catch {}
+
+      const isFlask    = requirements.includes("flask");
+      const isFastAPI  = requirements.includes("fastapi");
+      const isUvicorn  = requirements.includes("uvicorn");
+      const isDjango   = requirements.includes("django");
+
+      const PY_CANDIDATES = ["main.py", "app.py", "run.py", "server.py", "bot.py", "manage.py", "index.py"];
       const found = PY_CANDIDATES.find(c => files.includes(c));
       const pyFile = found || "main.py";
+      fixes.push(`Point d'entrée Python : ${pyFile}`);
+
       updates["PY_FILE"] = pyFile;
       updates["REQUIREMENTS_FILE"] = "requirements.txt";
-      fixes.push(`Point d'entrée Python : ${pyFile}`);
+
+      if (isDjango && files.includes("manage.py")) {
+        fixes.push(`Django détecté`);
+      } else if (isFastAPI || isUvicorn) {
+        fixes.push(`FastAPI/Uvicorn détecté`);
+      } else if (isFlask) {
+        fixes.push(`Flask détecté`);
+      }
+
     } else if (files.some(f => f.endsWith(".jar"))) {
-      // Java
+      // ── Java ───────────────────────────────────────────────────────────
       const jar = files.find(f => f.endsWith(".jar") && !/(sources|javadoc|test)/.test(f)) || "app.jar";
       updates["JARFILE"] = jar;
       fixes.push(`JAR détecté : ${jar}`);
-    } else if (files.includes("index.php") || files.includes("public")) {
-      // PHP
+
+    } else if (files.includes("index.php") || files.some(f => f.endsWith(".php"))) {
+      // ── PHP ────────────────────────────────────────────────────────────
       const docRoot = files.includes("public") ? "public" : ".";
       updates["DOCUMENT_ROOT"] = docRoot;
       fixes.push(`Document root PHP : ${docRoot}`);
     }
 
     if (Object.keys(updates).length === 0) {
-      res.status(422).json({ error: "Impossible de détecter la technologie du serveur", files });
+      res.status(422).json({
+        error: "Impossible de détecter la technologie du serveur",
+        files,
+        help: "Déployez à nouveau votre projet depuis l'onglet Déployer"
+      });
       return;
     }
 
-    // Apply startup variable updates
-    const results: string[] = [];
+    // 2 — Apply updates to Pterodactyl startup variables
+    const applied: string[] = [];
     for (const [key, value] of Object.entries(updates)) {
       try {
         await updateStartupVariable(identifier, key, value);
-        results.push(`${key} = ${value}`);
+        applied.push(`${key} = ${JSON.stringify(value)}`);
       } catch {
-        results.push(`${key} — non applicable à cet egg`);
+        applied.push(`${key} — variable non reconnue par cet egg`);
       }
     }
 
-    // Kill and restart
+    // 3 — Kill then restart with corrected config
     try { await sendPowerAction(identifier, "kill"); } catch {}
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 2500));
     try { await sendPowerAction(identifier, "start"); } catch {}
 
-    res.json({ ok: true, fixes, applied: results });
+    res.json({ ok: true, fixes, applied });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
