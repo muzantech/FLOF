@@ -324,7 +324,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
       {/* WhatsApp Support Widget */}
       <a
-        href="https://wa.me/22300000000?text=Bonjour%20FlyHost%2C%20j%27ai%20besoin%20d%27aide%20!"
+        href="https://whatsapp.com/channel/0029VahusSh0QeaoFzHJCk2x"
         target="_blank"
         rel="noreferrer"
         className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-full shadow-2xl transition-all duration-300 hover:scale-105 hover:shadow-green-500/30"
