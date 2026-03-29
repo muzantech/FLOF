@@ -56,7 +56,11 @@ function detectHostGateway() {
   return "127.0.0.1";
 }
 
-const HOST_GATEWAY = process.env.HOST_GATEWAY || detectHostGateway();
+// HOST_IP: IP where the other Pterodactyl containers are reachable.
+// Docker-proxy binds to the VPS external IP (173.212.226.118), NOT to 127.0.0.1 or the Docker gateway.
+// UFW is configured to allow traffic from pterodactyl_nw (172.18.0.0/16) to this IP on ports 3001-3199.
+// Priority: HOST_IP env > SERVER_IP env > detected Docker gateway (fallback)
+const HOST_GATEWAY = process.env.HOST_IP || process.env.SERVER_IP || "173.212.226.118" || detectHostGateway();
 
 // Dossier des fichiers statiques du dashboard (déployé avec le proxy)
 const STATIC_DIR = path.join(__dirname, "public");
