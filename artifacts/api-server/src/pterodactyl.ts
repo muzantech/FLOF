@@ -334,11 +334,11 @@ export async function deletePteroServer(serverId: number) {
   return pteroAppRequest(`/servers/${serverId}/force`, "DELETE");
 }
 
-export async function getPteroServerByIdentifier(identifier: string): Promise<{ id: number } | null> {
+export async function getPteroServerByIdentifier(identifier: string): Promise<{ id: number; name: string } | null> {
   // The Application API supports filter[uuidShort] for the 8-char identifier (e.g. "1f8fdd49")
   const data = await pteroAppRequest(`/servers?filter[uuidShort]=${identifier}&per_page=10`);
   const found = data.data?.find((s: any) => s.attributes.identifier === identifier);
-  return found ? { id: found.attributes.id } : null;
+  return found ? { id: found.attributes.id, name: found.attributes.name } : null;
 }
 
 export async function listPteroServers(page = 1) {
@@ -346,7 +346,7 @@ export async function listPteroServers(page = 1) {
 }
 
 export async function getPteroServer(serverId: number) {
-  return pteroAppRequest(`/servers/${serverId}`);
+  return pteroAppRequest(`/servers/${serverId}?include=allocations`);
 }
 
 /**

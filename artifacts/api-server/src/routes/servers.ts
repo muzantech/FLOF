@@ -206,8 +206,18 @@ router.post("/servers", requireAuth, async (req: AuthRequest, res): Promise<void
 // GET /api/servers/:id — get server details
 router.get("/servers/:id", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   try {
-    const serverId = parseInt(req.params.id, 10);
-    const data = await getPteroServer(serverId);
+    const rawId = req.params.id;
+    // Support both numeric Pterodactyl server IDs and 8-char hex identifiers
+    let data: any;
+    if (/^[0-9a-f]{8}$/i.test(rawId)) {
+      // 8-char hex identifier (e.g. "6b9cea2c") — look up numeric ID first
+      const info = await getPteroServerByIdentifier(rawId);
+      if (!info) { res.status(404).json({ error: "Server not found" }); return; }
+      data = await getPteroServer(info.id);
+    } else {
+      const serverId = parseInt(rawId, 10);
+      data = await getPteroServer(serverId);
+    }
     res.json({ server: formatServer(data) });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -531,7 +541,8 @@ router.put("/servers/:id/subdomain", requireAuth, async (req: AuthRequest, res):
     if (!serverInfo) { res.status(404).json({ error: "Serveur introuvable" }); return; }
 
     const full = await getPteroServer(serverInfo.id);
-    const alloc = full?.relationships?.allocations?.data?.[0]?.attributes;
+    // Pterodactyl Application API wraps data under .attributes.relationships
+    const alloc = full?.attributes?.relationships?.allocations?.data?.[0]?.attributes;
     const port: number | null = alloc?.port ?? null;
 
     // Delete old DNS record if SERVER_SUBDOMAIN was set previously
@@ -558,20 +569,22 @@ router.put("/servers/:id/subdomain", requireAuth, async (req: AuthRequest, res):
 
     // Upsert in DB: subdomain → port mapping for reverse proxy
     if (port) {
+      // Use the allocation IP (in prod = VPS IP = same machine; in dev = remote Wings IP)
+      const targetIp = alloc?.ip || process.env.SERVER_IP || "127.0.0.1";
       await db.insert(serverSubdomainsTable)
         .values({
           subdomain,
           pterodactylIdentifier: identifier,
           port,
-          ip: "127.0.0.1",
+          ip: targetIp,
           userId: req.user?.id ?? null,
         })
         .onConflictDoUpdate({
           target: serverSubdomainsTable.subdomain,
-          set: { port, pterodactylIdentifier: identifier, ip: "127.0.0.1", updatedAt: new Date() },
+          set: { port, pterodactylIdentifier: identifier, ip: targetIp, updatedAt: new Date() },
         });
       // Update in-memory proxy cache immediately
-      setCacheEntry(subdomain, port, "127.0.0.1");
+      setCacheEntry(subdomain, port, targetIp);
     }
 
     // Clean URL — no port (Cloudflare proxied handles TLS)
@@ -820,6 +833,62 @@ router.post("/servers/:identifier/fix-startup", requireAuth, async (req: AuthReq
 
 function generateSubdomain(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").substring(0, 32) || "server";
+}
+
+// POST /api/servers/sync-subdomains — Admin: sync all Pterodactyl servers into DB
+router.post("/servers/sync-subdomains", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  if (req.user?.role !== "admin" && req.user?.role !== "superadmin") {
+    res.status(403).json({ error: "Admin requis" }); return;
+  }
+  try {
+    const count = await syncAllSubdomains();
+    res.json({ success: true, synced: count });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Sync all Pterodactyl servers into the server_subdomains DB table.
+ * Call this on server boot and/or manually to populate the reverse proxy cache.
+ */
+export async function syncAllSubdomains(): Promise<number> {
+  let page = 1, total = 0;
+  const SERVER_IP_ENV = process.env.SERVER_IP;
+  try {
+    while (true) {
+      const data = await listPteroServers(page);
+      const servers: any[] = data?.data || [];
+      if (servers.length === 0) break;
+
+      for (const s of servers) {
+        const a = s.attributes;
+        const alloc = a.relationships?.allocations?.data?.[0]?.attributes;
+        if (!alloc?.port) continue;
+        const allocIp: string = alloc.ip;
+        const targetIp = (allocIp && allocIp !== "0.0.0.0") ? allocIp : (SERVER_IP_ENV || "127.0.0.1");
+        const subdomain = generateSubdomain(a.name);
+        try {
+          await db.insert(serverSubdomainsTable)
+            .values({ subdomain, pterodactylIdentifier: a.identifier, port: alloc.port, ip: targetIp })
+            .onConflictDoUpdate({
+              target: serverSubdomainsTable.subdomain,
+              set: { port: alloc.port, pterodactylIdentifier: a.identifier, ip: targetIp, updatedAt: new Date() },
+            });
+          setCacheEntry(subdomain, alloc.port, targetIp);
+          total++;
+        } catch { /* skip individual failures */ }
+      }
+
+      const meta = data?.meta?.pagination;
+      if (!meta || page >= meta.total_pages) break;
+      page++;
+    }
+    console.log(`[sync-subdomains] Synced ${total} servers to DB`);
+  } catch (err) {
+    console.error("[sync-subdomains] Error:", err);
+  }
+  return total;
 }
 
 function formatServer(s: any) {

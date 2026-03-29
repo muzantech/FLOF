@@ -248,7 +248,7 @@ async function runDeploy(
   deploymentId: number,
   identifier: string,
   srcDir: string,
-  opts: { envVars?: Record<string, string>; startCommand?: string }
+  opts: { envVars?: Record<string, string>; startCommand?: string; userId?: number | null }
 ): Promise<void> {
   const start = Date.now();
 
@@ -462,7 +462,9 @@ async function runDeploy(
         if (serverInfo) {
           const subdomain = generateSubdomain(serverInfo.name);
           const full = await getPteroServer(serverInfo.id);
-          const port: number | undefined = full?.relationships?.allocations?.data?.[0]?.attributes?.port;
+          // Pterodactyl Application API wraps data under .attributes.relationships
+          const allocData = full?.attributes?.relationships?.allocations?.data?.[0]?.attributes;
+          const port: number | undefined = allocData?.port;
           // Set SERVER_SUBDOMAIN env var on Pterodactyl
           await updateServerEnvViaAppAPI(serverInfo.id, { SERVER_SUBDOMAIN: subdomain }).catch(() => {});
           // Ensure Cloudflare wildcard DNS exists
@@ -470,27 +472,30 @@ async function runDeploy(
           // Clean URL — no port (Cloudflare wildcard proxied → Express proxy → internal port)
           const subdomainUrl = `https://${subdomain}.flihost.site`;
           if (port) {
+            const allocIp = allocData?.ip;
+            // Use allocation IP (in prod = same machine; in dev = remote Wings)
+            const targetIp = (allocIp && allocIp !== "0.0.0.0") ? allocIp : (process.env.SERVER_IP || "127.0.0.1");
             // Save subdomain → port mapping in DB for the reverse proxy
             await db.insert(serverSubdomainsTable)
               .values({
                 subdomain,
                 pterodactylIdentifier: identifier,
                 port,
-                ip: "127.0.0.1",
-                userId: req.user?.id ?? null,
+                ip: targetIp,
+                userId: opts.userId ?? null,
               })
               .onConflictDoUpdate({
                 target: serverSubdomainsTable.subdomain,
-                set: { port, pterodactylIdentifier: identifier, ip: "127.0.0.1", updatedAt: new Date() },
+                set: { port, pterodactylIdentifier: identifier, ip: targetIp, updatedAt: new Date() },
               })
               .catch(() => {});
             // Update in-memory proxy cache immediately
-            setCacheEntry(subdomain, port, "127.0.0.1");
+            setCacheEntry(subdomain, port, targetIp);
             deployUrl = subdomainUrl;
           }
           await logDeploy(deploymentId, "info", `🔗 URL de l'app   : ${subdomainUrl}`);
         }
-      } catch { /* non-blocking */ }
+      } catch { /* non-blocking — subdomain assignment is best-effort */ }
     }
 
     await db.update(deploymentsTable).set({
@@ -817,7 +822,8 @@ async function checkServerAlive(identifier: string, waitMs = 18000): Promise<boo
   try {
     const res = await getServerStats(identifier);
     const state: string = res?.attributes?.current_state || "";
-    return state === "running";
+    // Accept "running" or "starting" — npm install may take longer than the wait window
+    return state === "running" || state === "starting";
   } catch {
     return false;
   }
@@ -861,7 +867,7 @@ router.post("/deploy/zip", requireAuth, upload.single("file"), async (req: AuthR
     const srcDir = flattenIfNeeded(tmpDir);
 
     // Run deploy pipeline asynchronously
-    runDeploy(deployment.id, identifier, srcDir, { envVars }).finally(() => {
+    runDeploy(deployment.id, identifier, srcDir, { envVars, userId: req.userId ?? null }).finally(() => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
       fs.rmSync(zipFile.path, { force: true });
     });
@@ -923,7 +929,7 @@ router.post("/deploy/github", requireAuth, async (req: AuthRequest, res): Promis
           await logDeploy(deployment.id, "info", `Commit : ${commitHash.trim().substring(0, 7)} — ${commitMsg.trim().substring(0, 60)}`);
         } catch { /* non-fatal */ }
 
-        await runDeploy(deployment.id, identifier, tmpDir, { envVars, startCommand });
+        await runDeploy(deployment.id, identifier, tmpDir, { envVars, startCommand, userId: deployment.userId ?? null });
       } finally {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       }
