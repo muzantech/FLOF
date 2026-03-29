@@ -410,9 +410,130 @@ export function buildNodeStartup(mainFile: string): string {
   return `if [ -f /home/container/package.json ]; then /usr/local/bin/npm install --prefer-offline --no-audit --no-fund --maxsockets 2 2>&1 || true; fi; /usr/local/bin/node "/home/container/${mainFile}"`;
 }
 
+/** Startup for Bun projects (runs inside the Node.js egg image) */
+export function buildBunStartup(mainFile: string): string {
+  return `if [ -f /home/container/package.json ]; then /usr/local/bin/npm install --prefer-offline --no-audit --no-fund --maxsockets 2 2>&1 || true; fi; if command -v bun &>/dev/null; then bun run "/home/container/${mainFile}"; else /usr/local/bin/node "/home/container/${mainFile}"; fi`;
+}
+
+/** Startup for Deno projects (runs inside the Node.js egg image, falls back to node) */
+export function buildDenoStartup(mainFile: string): string {
+  return `if command -v deno &>/dev/null; then deno run --allow-net --allow-read --allow-env "/home/container/${mainFile}"; else /usr/local/bin/node "/home/container/${mainFile}"; fi`;
+}
+
 /** Build the correct Python startup command for a Pterodactyl Python egg */
 export function buildPythonStartup(pyFile: string): string {
   return `if [ -f /home/container/requirements.txt ]; then pip install -r /home/container/requirements.txt; fi; /usr/local/bin/python3 "/home/container/${pyFile}"`;
+}
+
+/** Build a PHP startup command */
+export function buildPhpStartup(docRoot: string): string {
+  return `if [ -f /home/container/composer.json ]; then composer install --no-interaction --no-dev --optimize-autoloader 2>&1 || true; fi; php -S 0.0.0.0:\${SERVER_PORT:-3000} -t /home/container/${docRoot}`;
+}
+
+/** Build a static file server startup (npx serve, always available in Node.js egg) */
+export function buildStaticStartup(docRoot: string = "."): string {
+  return `npx --yes serve /home/container/${docRoot} --listen \${SERVER_PORT:-3000} --no-clipboard 2>&1`;
+}
+
+/** Build a Ruby startup command */
+export function buildRubyStartup(mainFile: string): string {
+  return `if [ -f /home/container/Gemfile ]; then bundle install --without development test 2>&1 || true; fi; ruby "/home/container/${mainFile}"`;
+}
+
+/** Build a Go startup command (requires go toolchain in the image) */
+export function buildGoStartup(mainFile: string): string {
+  return `if command -v go &>/dev/null; then cd /home/container && go mod download 2>/dev/null || true && go run ${mainFile}; else echo "Go runtime not available in this container image"; fi`;
+}
+
+/**
+ * Get the current egg ID of a server via Application API.
+ * Returns null if the server cannot be found.
+ */
+export async function getServerCurrentEgg(identifier: string): Promise<{ eggId: number; image: string } | null> {
+  try {
+    const serverInfo = await getPteroServerByIdentifier(identifier);
+    if (!serverInfo) return null;
+    const serverData = await pteroAppRequest(`/servers/${serverInfo.id}`);
+    const attrs = serverData.attributes;
+    return {
+      eggId: attrs.egg as number,
+      image: attrs.container?.image as string || "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Switch a server's egg to match the detected tech stack.
+ * Uses PATCH /api/application/servers/{id}/startup to update egg + image + startup.
+ * Then triggers a reinstall so Wings recreates the container with the new image.
+ * NOTE: Files are preserved across reinstalls (volumes persist).
+ */
+export async function switchServerEgg(
+  serverId: number,
+  tech: string,
+  startupCmd: string,
+): Promise<{ switched: boolean; message: string }> {
+  const config = EGG_CONFIGS[tech];
+  if (!config) {
+    return { switched: false, message: `Pas de config egg pour: ${tech}` };
+  }
+
+  try {
+    // GET current server config to merge environment
+    const serverData = await pteroAppRequest(`/servers/${serverId}`);
+    const attrs = serverData.attributes;
+    const currentEnv: Record<string, string> = attrs.container?.environment || {};
+
+    // Build new environment from egg defaults + current values
+    const newEnv: Record<string, string> = { ...config.environment, ...currentEnv };
+    // Inject STARTUP so the egg uses our command
+    newEnv["STARTUP"] = startupCmd;
+
+    // PATCH startup with new egg
+    const patchRes = await fetch(`${PANEL_URL}/api/application/servers/${serverId}/startup`, {
+      method: "PATCH",
+      headers: {
+        "Authorization": `Bearer ${APP_KEY}`,
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        startup: startupCmd,
+        environment: newEnv,
+        egg: config.eggId,
+        image: config.dockerImage,
+        skip_scripts: false,
+      }),
+    });
+
+    if (!patchRes.ok) {
+      const errText = await patchRes.text();
+      return { switched: false, message: `Changement d'egg échoué: HTTP ${patchRes.status} — ${errText.substring(0, 150)}` };
+    }
+
+    // Trigger reinstall so Wings recreates the container with the new Docker image
+    // This preserves files (volumes persist) but applies the new image
+    const reinstallRes = await fetch(`${PANEL_URL}/api/application/servers/${serverId}/reinstall`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${APP_KEY}`,
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (reinstallRes.ok || reinstallRes.status === 204) {
+      return { switched: true, message: `Egg changé vers ${config.label} (${config.dockerImage}) — réinstallation en cours` };
+    } else {
+      // Egg was updated but reinstall might need a different endpoint or is unavailable
+      // Container will use new egg on next full restart by Wings
+      return { switched: true, message: `Egg mis à jour vers ${config.label} — redémarrage avec nouvelle image` };
+    }
+  } catch (err: any) {
+    return { switched: false, message: `Erreur changement egg: ${err.message}` };
+  }
 }
 
 export async function listClientServers() {

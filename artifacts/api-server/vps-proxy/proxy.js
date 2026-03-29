@@ -132,34 +132,34 @@ a{color:#facc15}code{background:#09090b;color:#71717a;padding:.2rem .6rem;border
 }
 
 // ─────────────────── Static file server (dashboard) ──────────────────────────
-function serveStatic(reqPath, clientRes) {
-  // Normalize path
-  let filePath = path.join(STATIC_DIR, reqPath === "/" ? "index.html" : reqPath);
-  // Prevent directory traversal
-  if (!filePath.startsWith(STATIC_DIR)) {
-    clientRes.writeHead(403); clientRes.end(); return;
+// Checks ./public/ first; if missing, falls back to the Replit API server
+// which also serves the built frontend (no VPS file push needed after rebuilds).
+const STATIC_AVAILABLE = fs.existsSync(STATIC_DIR);
+
+function serveStatic(reqPath, clientReq, clientRes) {
+  // ── 1. Try local ./public/ if it exists ──────────────────────────────────
+  if (STATIC_AVAILABLE) {
+    let filePath = path.join(STATIC_DIR, reqPath === "/" ? "index.html" : reqPath);
+    if (!filePath.startsWith(STATIC_DIR)) { clientRes.writeHead(403); clientRes.end(); return; }
+    if (!fs.existsSync(filePath) && !path.extname(reqPath)) {
+      filePath = path.join(STATIC_DIR, "index.html");
+    }
+    if (fs.existsSync(filePath)) {
+      const stat = fs.statSync(filePath);
+      const mime = getMime(filePath);
+      clientRes.writeHead(200, {
+        "Content-Type": mime,
+        "Content-Length": stat.size,
+        "Cache-Control": filePath.includes("/assets/") ? "public, max-age=31536000, immutable" : "no-cache",
+        "X-Powered-By": "FlyHost",
+      });
+      fs.createReadStream(filePath).pipe(clientRes);
+      return;
+    }
   }
 
-  // If the file doesn't exist AND it doesn't look like a static asset → SPA fallback
-  if (!fs.existsSync(filePath) && !path.extname(reqPath)) {
-    filePath = path.join(STATIC_DIR, "index.html");
-  }
-
-  if (!fs.existsSync(filePath)) {
-    clientRes.writeHead(404, { "Content-Type": "text/plain" });
-    clientRes.end("404 Not Found");
-    return;
-  }
-
-  const stat = fs.statSync(filePath);
-  const mime = getMime(filePath);
-  clientRes.writeHead(200, {
-    "Content-Type": mime,
-    "Content-Length": stat.size,
-    "Cache-Control": filePath.includes("/assets/") ? "public, max-age=31536000, immutable" : "no-cache",
-    "X-Powered-By": "FlyHost",
-  });
-  fs.createReadStream(filePath).pipe(clientRes);
+  // ── 2. Fallback: forward to Replit API server which hosts the frontend ───
+  proxyToApi(clientReq, clientRes);
 }
 
 // ─────────────────── API proxy (forward to Replit API) ───────────────────────
@@ -279,14 +279,14 @@ function handleRequest(clientReq, clientRes) {
     if (reqPath.startsWith("/api/")) {
       proxyToApi(clientReq, clientRes);
     } else {
-      serveStatic(url.parse(reqPath).pathname, clientRes);
+      serveStatic(url.parse(reqPath).pathname, clientReq, clientRes);
     }
     return;
   }
 
   // ── Subdomains ────────────────────────────────────────────────────────────
   const subdomain = host.slice(0, host.length - suffix.length);
-  if (!subdomain) { serveStatic("/", clientRes); return; }
+  if (!subdomain) { serveStatic("/", clientReq, clientRes); return; }
 
   const route = routeTable.get(subdomain);
   if (!route) {

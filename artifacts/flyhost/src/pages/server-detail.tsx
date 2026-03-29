@@ -906,107 +906,250 @@ function StartupPanel({ identifier }: { identifier: string }) {
 }
 
 // ── Deploy panel ──────────────────────────
+const RUNTIMES = [
+  { id: "nodejs",  label: "Node.js",  color: "#68A063", desc: "Express, Fastify, Next.js…" },
+  { id: "python",  label: "Python",   color: "#3776AB", desc: "Flask, FastAPI, Django…"  },
+  { id: "php",     label: "PHP",      color: "#8892BF", desc: "Laravel, WordPress, Symfony…" },
+  { id: "bun",     label: "Bun",      color: "#FBF0DF", desc: "Runtime JS ultra-rapide" },
+  { id: "deno",    label: "Deno",     color: "#70FFAF", desc: "Runtime JS sécurisé" },
+  { id: "java",    label: "Java",     color: "#ED8B00", desc: "Spring Boot, Quarkus…" },
+  { id: "static",  label: "Statique", color: "#E2E8F0", desc: "HTML/CSS/JS, SPA builds" },
+  { id: "ruby",    label: "Ruby",     color: "#CC342D", desc: "Rails, Sinatra…" },
+  { id: "go",      label: "Go",       color: "#00ADD8", desc: "Gin, Echo, Fiber…" },
+];
+
 function DeployPanel({ identifier, serverName }: { identifier: string; serverName: string }) {
+  const [deployMode, setDeployMode] = useState<"zip" | "git">("zip");
   const [gitUrl, setGitUrl] = useState("");
   const [gitBranch, setGitBranch] = useState("main");
-  const [deployLog, setDeployLog] = useState<string[]>([]);
+  const [deployLogs, setDeployLogs] = useState<Array<{ level: string; message: string; ts: string }>>([]);
   const [deploying, setDeploying] = useState(false);
+  const [deploymentId, setDeploymentId] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const { toast } = useToast();
   const logEndRef = useRef<HTMLDivElement>(null);
+  const sseRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [deployLog]);
+  }, [deployLogs]);
 
-  function addLog(msg: string) {
-    setDeployLog(p => [...p, `[${new Date().toLocaleTimeString()}] ${msg}`]);
+  useEffect(() => {
+    return () => { sseRef.current?.close(); };
+  }, []);
+
+  function addLog(level: string, message: string) {
+    setDeployLogs(p => [...p, { level, message, ts: new Date().toLocaleTimeString() }]);
   }
 
-  async function deployFromGit() {
-    if (!gitUrl.trim()) {
-      toast({ variant: "destructive", title: "URL Git requise" });
-      return;
-    }
-    setDeploying(true); setDeployLog([]);
-    addLog(`Déploiement depuis ${gitUrl} (branche: ${gitBranch})`);
+  function subscribeSSE(depId: number) {
+    sseRef.current?.close();
+    const es = new EventSource(`/api/servers/${identifier}/deploy/sse?deploymentId=${depId}`);
+    sseRef.current = es;
+    es.onmessage = (e) => {
+      try {
+        const d = JSON.parse(e.data);
+        addLog(d.level, d.message);
+        if (d.message === "__DEPLOY_COMPLETE__" || d.message === "__DEPLOY_FAILED__") {
+          es.close();
+          setDeploying(false);
+        }
+      } catch {}
+    };
+    es.onerror = () => { es.close(); setDeploying(false); };
+  }
+
+  async function deployZip(file: File) {
+    setDeploying(true);
+    setDeployLogs([]);
+    addLog("info", `📦 ZIP reçu: ${file.name} (${Math.round(file.size / 1024)} Ko) — détection automatique du runtime…`);
     try {
-      const deployScript = `#!/bin/bash\nset -e\necho "[FlyHost Deploy] Starting..."\nif [ -d ".git" ]; then\n  git fetch origin && git checkout ${gitBranch} && git pull origin ${gitBranch}\nelse\n  git clone -b ${gitBranch} ${gitUrl} .\nfi\nif [ -f "package.json" ]; then npm install; fi\nif [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi\necho "[FlyHost Deploy] Done!"\n`;
-      const writeRes = await fetch(`/api/servers/${identifier}/files/write`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ file: "/flyhost-deploy.sh", content: deployScript }),
-      });
-      if (!writeRes.ok) { const d = await writeRes.json(); throw new Error(d.error); }
-      addLog("Script écrit sur le serveur ✓");
-      addLog("Allez dans Console → connectez → exécutez: bash /flyhost-deploy.sh");
+      const form = new FormData();
+      form.append("file", file);
+      form.append("identifier", identifier);
+      const res = await fetch("/api/deploy/zip", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur déploiement");
+      setDeploymentId(data.deploymentId);
+      subscribeSSE(data.deploymentId);
     } catch (e: any) {
-      addLog(`Erreur: ${e.message}`);
-      toast({ variant: "destructive", title: "Erreur", description: e.message });
+      addLog("error", `Erreur: ${e.message}`);
+      setDeploying(false);
+      toast({ variant: "destructive", title: "Erreur de déploiement", description: e.message });
     }
-    setDeploying(false);
   }
 
-  async function uploadAndDeploy(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    addLog(`Upload de ${file.name}…`);
-    const content = await file.text();
+  async function deployGit() {
+    if (!gitUrl.trim()) { toast({ variant: "destructive", title: "URL Git requise" }); return; }
+    setDeploying(true);
+    setDeployLogs([]);
+    addLog("info", `🔗 Clonage: ${gitUrl} (branche: ${gitBranch}) — détection automatique du runtime…`);
     try {
-      const res = await fetch(`/api/servers/${identifier}/files/write`, {
+      const res = await fetch("/api/deploy/github", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ file: `/${file.name}`, content }),
+        body: JSON.stringify({ identifier, gitUrl: gitUrl.trim(), branch: gitBranch }),
       });
-      if (res.ok) { addLog(`✓ ${file.name} uploadé !`); toast({ title: `${file.name} uploadé` }); }
-      else { const d = await res.json(); addLog(`Erreur: ${d.error}`); }
-    } catch (e: any) { addLog(`Erreur: ${e.message}`); }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur Git");
+      setDeploymentId(data.deploymentId);
+      subscribeSSE(data.deploymentId);
+    } catch (e: any) {
+      addLog("error", `Erreur: ${e.message}`);
+      setDeploying(false);
+      toast({ variant: "destructive", title: "Erreur Git", description: e.message });
+    }
+  }
+
+  function handleFileDrop(e: React.DragEvent) {
+    e.preventDefault(); setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file && (file.name.endsWith(".zip") || file.type === "application/zip")) deployZip(file);
+    else toast({ variant: "destructive", title: "Fichier ZIP requis" });
+  }
+
+  function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) deployZip(file);
     e.target.value = "";
+  }
+
+  function logColor(level: string) {
+    if (level === "error") return "text-red-400";
+    if (level === "warn") return "text-yellow-400";
+    if (level === "success") return "text-emerald-400";
+    if (level === "done") return "text-emerald-300";
+    return "text-zinc-300";
   }
 
   return (
     <div className="space-y-5">
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
-        <h3 className="text-base font-semibold text-white mb-1 flex items-center gap-2">
-          <GitBranch className="w-4 h-4 text-yellow-400" /> Déployer depuis Git
-        </h3>
-        <p className="text-xs text-zinc-500 mb-4">Clonez ou mettez à jour depuis un dépôt Git</p>
-        <div className="space-y-3">
+
+      {/* Supported runtimes */}
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-4">
+        <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-3">Runtimes supportés — détection automatique</p>
+        <div className="flex flex-wrap gap-2">
+          {RUNTIMES.map(rt => (
+            <div key={rt.id} className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-800/60 border border-zinc-700/50 text-xs text-zinc-300" title={rt.desc}>
+              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: rt.color }} />
+              {rt.label}
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-zinc-600 mt-2">
+          FlyHost analyse vos fichiers et configure l'environnement automatiquement. Ajoutez un <code className="text-yellow-400/80">flyhost.json</code> pour forcer le runtime.
+        </p>
+      </div>
+
+      {/* Mode selector */}
+      <div className="flex rounded-lg border border-zinc-800 overflow-hidden">
+        <button
+          onClick={() => setDeployMode("zip")}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-all ${deployMode === "zip" ? "bg-yellow-400 text-black" : "bg-zinc-900 text-zinc-400 hover:text-white"}`}
+        >
+          <Upload className="w-4 h-4" /> ZIP Upload
+        </button>
+        <button
+          onClick={() => setDeployMode("git")}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-all ${deployMode === "git" ? "bg-yellow-400 text-black" : "bg-zinc-900 text-zinc-400 hover:text-white"}`}
+        >
+          <GitBranch className="w-4 h-4" /> Dépôt Git
+        </button>
+      </div>
+
+      {/* ZIP Deploy */}
+      {deployMode === "zip" && (
+        <div
+          className={`rounded-xl border-2 border-dashed p-8 text-center transition-all cursor-pointer ${isDragging ? "border-yellow-400 bg-yellow-400/5" : "border-zinc-700 hover:border-zinc-500"}`}
+          onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={handleFileDrop}
+          onClick={() => document.getElementById(`zip-input-${identifier}`)?.click()}
+        >
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-yellow-400/10 flex items-center justify-center">
+              <Upload className="w-6 h-6 text-yellow-400" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-white">Glissez votre ZIP ici ou cliquez</p>
+              <p className="text-xs text-zinc-500 mt-1">Tout type de projet — Node.js, Python, PHP, Ruby, Go, Java, statique…</p>
+              <p className="text-xs text-zinc-600 mt-1">Max 200 Mo · Le runtime est détecté automatiquement</p>
+            </div>
+            {deploying && (
+              <div className="flex items-center gap-2 text-yellow-400 text-xs">
+                <Loader2 className="w-3 h-3 animate-spin" /> Déploiement en cours…
+              </div>
+            )}
+          </div>
+          <input id={`zip-input-${identifier}`} type="file" accept=".zip" className="hidden" onChange={handleFileInput} disabled={deploying} />
+        </div>
+      )}
+
+      {/* Git Deploy */}
+      {deployMode === "git" && (
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5 space-y-3">
           <div>
-            <label className="text-xs text-zinc-400 mb-1 block">URL du dépôt</label>
-            <Input placeholder="https://github.com/user/repo.git" value={gitUrl} onChange={e => setGitUrl(e.target.value)} className="bg-zinc-900 border-zinc-700 font-mono text-sm" />
+            <label className="text-xs text-zinc-400 mb-1 block">URL du dépôt Git</label>
+            <Input
+              placeholder="https://github.com/user/mon-projet.git"
+              value={gitUrl}
+              onChange={e => setGitUrl(e.target.value)}
+              className="bg-zinc-900 border-zinc-700 font-mono text-sm"
+              disabled={deploying}
+            />
           </div>
           <div>
             <label className="text-xs text-zinc-400 mb-1 block">Branche</label>
-            <Input placeholder="main" value={gitBranch} onChange={e => setGitBranch(e.target.value)} className="bg-zinc-900 border-zinc-700 font-mono text-sm max-w-48" />
+            <Input
+              placeholder="main"
+              value={gitBranch}
+              onChange={e => setGitBranch(e.target.value)}
+              className="bg-zinc-900 border-zinc-700 font-mono text-sm max-w-48"
+              disabled={deploying}
+            />
           </div>
-          <Button onClick={deployFromGit} disabled={deploying || !gitUrl.trim()} className="bg-yellow-400 text-black hover:bg-yellow-300 font-semibold gap-2">
+          <Button
+            onClick={deployGit}
+            disabled={deploying || !gitUrl.trim()}
+            className="bg-yellow-400 text-black hover:bg-yellow-300 font-semibold gap-2"
+          >
             {deploying ? <Loader2 className="w-4 h-4 animate-spin" /> : <GitBranch className="w-4 h-4" />}
-            {deploying ? "Déploiement…" : "Déployer"}
+            {deploying ? "Déploiement en cours…" : "Déployer depuis Git"}
           </Button>
         </div>
+      )}
+
+      {/* flyhost.json tip */}
+      <div className="rounded-lg bg-zinc-900/40 border border-zinc-800 p-3">
+        <p className="text-xs text-zinc-500 mb-1.5 font-medium">Conseil — <code className="text-yellow-400/80">flyhost.json</code> (optionnel)</p>
+        <pre className="text-xs text-zinc-400 font-mono leading-relaxed">{`{
+  "runtime": "python",   // nodejs | python | php | bun | deno | java | ruby | go | static
+  "entry":   "app.py",   // point d'entrée principal
+  "start":   "python app.py"  // commande de démarrage personnalisée
+}`}</pre>
       </div>
 
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
-        <h3 className="text-base font-semibold text-white mb-1 flex items-center gap-2">
-          <Upload className="w-4 h-4 text-yellow-400" /> Upload de fichier
-        </h3>
-        <p className="text-xs text-zinc-500 mb-4">Uploadez un fichier texte directement sur le serveur</p>
-        <label className="flex items-center gap-2 cursor-pointer w-fit">
-          <div className="px-4 py-2 rounded-lg border border-zinc-700 bg-zinc-900 hover:border-yellow-400/30 hover:bg-zinc-800 transition-all text-sm text-zinc-400 hover:text-white flex items-center gap-2">
-            <Upload className="w-4 h-4" /> Choisir un fichier
+      {/* Real-time logs */}
+      {deployLogs.length > 0 && (
+        <div className="rounded-xl border border-zinc-800 bg-black overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800">
+            <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Logs de déploiement</span>
+            {deploymentId && (
+              <span className="text-xs text-zinc-600">#{deploymentId}</span>
+            )}
           </div>
-          <input type="file" className="hidden" onChange={uploadAndDeploy} />
-        </label>
-      </div>
-
-      {deployLog.length > 0 && (
-        <div className="rounded-xl border border-zinc-800 bg-black p-4 font-mono text-xs space-y-1 max-h-48 overflow-y-auto">
-          {deployLog.map((line, i) => (
-            <div key={i} className={line.includes("Erreur") ? "text-red-400" : line.includes("✓") ? "text-emerald-400" : "text-zinc-400"}>
-              {line}
-            </div>
-          ))}
-          <div ref={logEndRef} />
+          <div className="p-4 font-mono text-xs space-y-0.5 max-h-72 overflow-y-auto">
+            {deployLogs.map((log, i) => (
+              <div key={i} className={`${logColor(log.level)} leading-5`}>
+                <span className="text-zinc-600 mr-2">{log.ts}</span>
+                {log.level === "success" && "✅ "}
+                {log.level === "error" && "❌ "}
+                {log.level === "warn" && "⚠️  "}
+                {log.message}
+              </div>
+            ))}
+            <div ref={logEndRef} />
+          </div>
         </div>
       )}
     </div>

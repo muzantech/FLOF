@@ -15,11 +15,25 @@ import path from "path";
 import os from "os";
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { uploadZipToPterodactyl, sendPowerAction, writeFileContents, purgeServerFiles, updateStartupVariable, getServerStats, updateServerEnvViaAppAPI, getPteroServerByIdentifier, getPteroServer, buildNodeStartup, buildPythonStartup } from "../pterodactyl";
+import { uploadZipToPterodactyl, sendPowerAction, writeFileContents, purgeServerFiles, updateStartupVariable, getServerStats, updateServerEnvViaAppAPI, getPteroServerByIdentifier, getPteroServer, buildNodeStartup, buildPythonStartup, buildPhpStartup, buildStaticStartup, buildBunStartup, buildDenoStartup, buildRubyStartup, buildGoStartup, getServerCurrentEgg, switchServerEgg, EGG_CONFIGS } from "../pterodactyl";
 import { createSubdomainDNS } from "../cloudflare";
 import { setCacheEntry } from "../subdomain-proxy";
 
-const WEB_TECHS = new Set(["nodejs", "python", "php"]);
+// All tech types that get subdomain routing and egg management
+const WEB_TECHS = new Set(["nodejs", "bun", "deno", "python", "php", "ruby", "go", "java", "static"]);
+
+// Maps detected tech to the egg key in EGG_CONFIGS
+const TECH_TO_EGG: Record<string, string> = {
+  nodejs: "nodejs",
+  bun: "nodejs",    // Bun runs inside Node.js egg (fallback to node if bun not available)
+  deno: "nodejs",   // Deno runs inside Node.js egg (fallback to node if deno not available)
+  static: "nodejs", // Static sites served via npx serve (in Node.js egg)
+  python: "python",
+  php: "php",
+  java: "java",
+  ruby: "nodejs",   // Ruby falls back to Node.js egg with error if no ruby binary
+  go: "nodejs",     // Go falls back to Node.js egg with error if no go binary
+};
 
 function generateSubdomain(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").substring(0, 32) || "server";
@@ -133,29 +147,203 @@ router.get("/servers/:identifier/deploy/sse", requireAuthFlexible, (req: AuthReq
 });
 
 // ————————————————————————————————————————————
-//  Tech auto-detection
+//  Universal tech detection (all languages + mixed projects)
 // ————————————————————————————————————————————
-function detectTech(files: string[]): string {
-  const names = files.map(f => path.basename(f).toLowerCase());
-  // Explicit manifest files take priority
-  if (names.includes("requirements.txt") || names.includes("pipfile") || names.includes("pyproject.toml")) return "python";
-  if (names.includes("composer.json")) return "php";
-  if (names.includes("pom.xml") || names.includes("build.gradle") || names.includes("build.gradle.kts")) return "java";
-  if (names.includes("cargo.toml")) return "rust";
-  if (names.includes("go.mod")) return "go";
-  if (names.includes("package.json")) return "nodejs";
-  if (files.some(f => f.endsWith(".php"))) return "php";
-  if (files.some(f => f.endsWith(".py"))) return "python";
-  if (files.some(f => f.endsWith(".java"))) return "java";
-  if (names.includes("index.html") || names.includes("index.htm")) return "static";
-  return "nodejs";
+
+interface TechScore {
+  tech: string;
+  score: number;
+  signals: string[];
+}
+
+/**
+ * detectTechFull — scores ALL detected technologies and returns the primary one.
+ * Handles mixed projects (e.g. Python backend + Node.js tooling).
+ * flyhost.json "runtime" field overrides all detection.
+ */
+function detectTech(files: string[], srcDir?: string): string {
+  return detectTechFull(files, srcDir).primary;
+}
+
+function detectTechFull(files: string[], srcDir?: string): { primary: string; all: TechScore[]; isMixed: boolean } {
+  const names = new Set(files.map(f => path.basename(f).toLowerCase()));
+  const exts = new Set(files.map(f => path.extname(f).toLowerCase()));
+  const relPaths = files.map(f => f.toLowerCase().replace(/\\/g, "/"));
+
+  // Helper to check existence of file in extracted dir
+  const hasFile = (name: string) => srcDir ? fs.existsSync(path.join(srcDir, name)) : names.has(name);
+  const hasPath = (p: string) => relPaths.some(f => f.includes(p));
+
+  // Read package.json for deeper analysis
+  let pkgJson: Record<string, any> = {};
+  if (srcDir && fs.existsSync(path.join(srcDir, "package.json"))) {
+    try { pkgJson = JSON.parse(fs.readFileSync(path.join(srcDir, "package.json"), "utf8")); } catch {}
+  }
+
+  const scores: TechScore[] = [];
+
+  // ── Bun ─────────────────────────────────────────────────────────
+  {
+    const s: string[] = [];
+    if (names.has("bun.lockb") || names.has("bun.lock")) s.push("bun.lockb trouvé");
+    if (names.has("bunfig.toml")) s.push("bunfig.toml trouvé");
+    if (pkgJson?.scripts?.start?.includes("bun ")) s.push("scripts.start utilise bun");
+    if (pkgJson?.scripts?.dev?.includes("bun ")) s.push("scripts.dev utilise bun");
+    if (s.length > 0) scores.push({ tech: "bun", score: s.length * 20, signals: s });
+  }
+
+  // ── Deno ─────────────────────────────────────────────────────────
+  {
+    const s: string[] = [];
+    if (names.has("deno.json") || names.has("deno.jsonc")) s.push("deno.json trouvé");
+    if (names.has("deno.lock")) s.push("deno.lock trouvé");
+    if (files.some(f => f.endsWith(".ts") && fs.existsSync && hasPath("import_map"))) s.push("import_map.json");
+    if (hasPath("deps.ts") || hasPath("mod.ts")) s.push("deps.ts / mod.ts (convention Deno)");
+    if (s.length > 0) scores.push({ tech: "deno", score: s.length * 18, signals: s });
+  }
+
+  // ── Node.js ───────────────────────────────────────────────────────
+  {
+    const s: string[] = [];
+    if (names.has("package.json")) s.push("package.json trouvé");
+    if (names.has("package-lock.json")) s.push("package-lock.json");
+    if (names.has("yarn.lock")) s.push("yarn.lock");
+    if (names.has("pnpm-lock.yaml")) s.push("pnpm-lock.yaml");
+    if (names.has(".nvmrc") || names.has(".node-version")) s.push(".nvmrc / .node-version");
+    if (names.has("tsconfig.json")) s.push("tsconfig.json");
+    if (names.has("next.config.js") || names.has("next.config.ts")) s.push("next.config → Next.js");
+    if (names.has("nuxt.config.ts") || names.has("nuxt.config.js")) s.push("nuxt.config → Nuxt");
+    if (names.has("vite.config.ts") || names.has("vite.config.js")) s.push("vite.config");
+    if (names.has("remix.config.js")) s.push("remix.config");
+    if (names.has("svelte.config.js")) s.push("svelte.config");
+    if (exts.has(".js") || exts.has(".ts") || exts.has(".mjs") || exts.has(".cjs")) s.push("fichiers JS/TS");
+    // Check scripts
+    const startScript = pkgJson?.scripts?.start || "";
+    if (startScript.includes("node ") || startScript.includes("ts-node") || startScript.includes("tsx")) s.push("scripts.start Node.js");
+    if (s.length > 0) scores.push({ tech: "nodejs", score: s.length * 10, signals: s });
+  }
+
+  // ── Python ────────────────────────────────────────────────────────
+  {
+    const s: string[] = [];
+    if (names.has("requirements.txt")) s.push("requirements.txt");
+    if (names.has("pipfile") || names.has("pipfile.lock")) s.push("Pipfile");
+    if (names.has("pyproject.toml")) s.push("pyproject.toml");
+    if (names.has("setup.py") || names.has("setup.cfg")) s.push("setup.py / setup.cfg");
+    if (names.has("poetry.lock")) s.push("poetry.lock");
+    if (names.has("manage.py")) s.push("manage.py (Django)");
+    if (names.has("wsgi.py") || hasPath("wsgi.py")) s.push("wsgi.py");
+    if (names.has("asgi.py") || hasPath("asgi.py")) s.push("asgi.py");
+    if (exts.has(".py")) s.push("fichiers .py");
+    // Check requirements content for frameworks
+    if (srcDir && fs.existsSync(path.join(srcDir, "requirements.txt"))) {
+      const req = fs.readFileSync(path.join(srcDir, "requirements.txt"), "utf8").toLowerCase();
+      if (req.includes("flask")) s.push("Flask");
+      if (req.includes("django")) s.push("Django");
+      if (req.includes("fastapi")) s.push("FastAPI");
+      if (req.includes("aiohttp")) s.push("aiohttp");
+      if (req.includes("tornado")) s.push("Tornado");
+    }
+    if (s.length > 0) scores.push({ tech: "python", score: s.length * 12, signals: s });
+  }
+
+  // ── PHP ───────────────────────────────────────────────────────────
+  {
+    const s: string[] = [];
+    if (names.has("composer.json")) s.push("composer.json");
+    if (names.has("composer.lock")) s.push("composer.lock");
+    if (exts.has(".php")) s.push("fichiers .php");
+    if (hasFile("public/index.php")) s.push("public/index.php (Laravel)");
+    if (hasPath("artisan")) s.push("artisan (Laravel)");
+    if (hasPath("wp-config.php") || hasPath("wp-login.php")) s.push("WordPress");
+    if (hasPath("config/bootstrap.php")) s.push("Symfony");
+    if (s.length > 0) scores.push({ tech: "php", score: s.length * 12, signals: s });
+  }
+
+  // ── Java ──────────────────────────────────────────────────────────
+  {
+    const s: string[] = [];
+    if (names.has("pom.xml")) s.push("pom.xml (Maven)");
+    if (names.has("build.gradle") || names.has("build.gradle.kts")) s.push("build.gradle (Gradle)");
+    if (names.has("gradlew") || names.has("mvnw")) s.push("wrapper Maven/Gradle");
+    if (exts.has(".java")) s.push("fichiers .java");
+    if (files.some(f => f.endsWith(".jar") && !f.includes("node_modules"))) s.push("fichier .jar");
+    if (hasPath("src/main/java") || hasPath("src/main/kotlin")) s.push("structure Maven standard");
+    if (s.length > 0) scores.push({ tech: "java", score: s.length * 15, signals: s });
+  }
+
+  // ── Ruby ──────────────────────────────────────────────────────────
+  {
+    const s: string[] = [];
+    if (names.has("gemfile") || names.has("Gemfile")) s.push("Gemfile");
+    if (names.has("gemfile.lock") || names.has("Gemfile.lock")) s.push("Gemfile.lock");
+    if (exts.has(".rb")) s.push("fichiers .rb");
+    if (names.has("rakefile") || names.has("Rakefile")) s.push("Rakefile");
+    if (names.has("config.ru")) s.push("config.ru (Rack/Sinatra/Rails)");
+    if (hasPath("config/application.rb")) s.push("Rails");
+    if (s.length > 0) scores.push({ tech: "ruby", score: s.length * 12, signals: s });
+  }
+
+  // ── Go ────────────────────────────────────────────────────────────
+  {
+    const s: string[] = [];
+    if (names.has("go.mod")) s.push("go.mod");
+    if (names.has("go.sum")) s.push("go.sum");
+    if (exts.has(".go")) s.push("fichiers .go");
+    if (s.length > 0) scores.push({ tech: "go", score: s.length * 15, signals: s });
+  }
+
+  // ── Rust (lang, NOT game) ─────────────────────────────────────────
+  {
+    const s: string[] = [];
+    if (names.has("cargo.toml")) s.push("Cargo.toml");
+    if (names.has("cargo.lock")) s.push("Cargo.lock");
+    if (exts.has(".rs")) s.push("fichiers .rs");
+    if (s.length > 0) scores.push({ tech: "rust-lang", score: s.length * 15, signals: s });
+  }
+
+  // ── Static HTML ───────────────────────────────────────────────────
+  {
+    const s: string[] = [];
+    if (names.has("index.html") || names.has("index.htm")) s.push("index.html");
+    if (exts.has(".html") || exts.has(".htm")) s.push("fichiers HTML");
+    if (names.has("styles.css") || names.has("style.css") || names.has("main.css")) s.push("CSS");
+    // Only count as static if no server-side tech found yet
+    if (s.length > 0) scores.push({ tech: "static", score: s.length * 5, signals: s });
+  }
+
+  // Sort by score descending
+  scores.sort((a, b) => b.score - a.score);
+
+  // Determine primary tech
+  let primary = scores[0]?.tech || "nodejs";
+
+  // Resolve Rust (lang) — falls back to Node.js egg since no Rust egg
+  if (primary === "rust-lang") primary = "rust-lang";
+
+  // Mixed: if top two scores are close, it's a mixed project
+  const isMixed = scores.length >= 2 && scores[1].score >= scores[0].score * 0.6;
+
+  // For mixed projects: prefer the more specific server-side tech
+  // (e.g., Python beats static; PHP beats static; Node.js beats static)
+  if (isMixed) {
+    const serverTechs = ["python", "php", "java", "ruby", "go", "rust-lang"];
+    const topServer = scores.find(s => serverTechs.includes(s.tech));
+    if (topServer) primary = topServer.tech;
+  }
+
+  // Bun/Deno take priority over plain nodejs if score is higher
+  // (they're already sorted, so this is handled)
+
+  return { primary, all: scores, isMixed };
 }
 
 // ————————————————————————————————————————————
-//  flyhost.json sanitizer
+//  flyhost.json sanitizer (v2 — supports runtime override)
 // ————————————————————————————————————————————
 const SAFE_CMD = /^[a-zA-Z0-9 \-_./:=@'"]+$/;
-const ALLOWED_FLYHOST_KEYS = new Set(["start", "install", "build", "port", "name", "env"]);
+const ALLOWED_FLYHOST_KEYS = new Set(["start", "install", "build", "port", "name", "env", "runtime", "entry"]);
+const VALID_RUNTIMES = new Set(["nodejs", "bun", "deno", "python", "php", "java", "ruby", "go", "static"]);
 
 function sanitizeFlyhost(raw: unknown): Record<string, string> {
   if (!raw || typeof raw !== "object") return {};
@@ -163,7 +351,12 @@ function sanitizeFlyhost(raw: unknown): Record<string, string> {
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     if (!ALLOWED_FLYHOST_KEYS.has(k)) continue;
     if (typeof v !== "string") continue;
-    if (!SAFE_CMD.test(v)) {
+    // Validate runtime enum
+    if (k === "runtime" && !VALID_RUNTIMES.has(v)) {
+      console.warn(`[security] flyhost.json: runtime '${v}' is not a valid runtime, ignoring`);
+      continue;
+    }
+    if (k !== "runtime" && k !== "entry" && !SAFE_CMD.test(v)) {
       console.warn(`[security] flyhost.json key '${k}' failed safe-cmd check, ignoring`);
       continue;
     }
@@ -254,28 +447,97 @@ async function runDeploy(
 
   try {
     const allFiles = getAllFiles(srcDir);
-
-    // Detect tech
     const relFiles = allFiles.map(f => path.relative(srcDir, f));
-    const tech = detectTech(relFiles);
-    await logDeploy(deploymentId, "info", `Technologie détectée : ${tech}`);
 
-    // Smart project analysis (detects entry point, framework, env vars)
-    const analysis = analyzeProject(srcDir, tech, relFiles);
-    await logDeploy(deploymentId, "info", `Analyse du projet (confiance: ${analysis.confidence}) :`);
-    for (const fix of analysis.fixes) {
-      await logDeploy(deploymentId, "info", `  → ${fix}`);
-    }
-
-    // Parse flyhost.json if present (overrides analysis)
+    // ── Parse flyhost.json FIRST (before detection) — supports runtime override ──
     const flyhostPath = path.join(srcDir, "flyhost.json");
     let flyhostConfig: Record<string, string> = {};
     if (fs.existsSync(flyhostPath)) {
       try {
         flyhostConfig = sanitizeFlyhost(JSON.parse(fs.readFileSync(flyhostPath, "utf8")));
         await logDeploy(deploymentId, "info", `flyhost.json trouvé et validé`);
+        if (flyhostConfig.runtime) {
+          await logDeploy(deploymentId, "info", `  → runtime forcé par flyhost.json: ${flyhostConfig.runtime}`);
+        }
+        if (flyhostConfig.entry) {
+          await logDeploy(deploymentId, "info", `  → point d'entrée forcé: ${flyhostConfig.entry}`);
+        }
+        if (flyhostConfig.start) {
+          await logDeploy(deploymentId, "info", `  → commande de démarrage: ${flyhostConfig.start}`);
+        }
       } catch {
         await logDeploy(deploymentId, "warn", `flyhost.json invalide — ignoré`);
+      }
+    }
+
+    // ── Full tech detection with mixed project support ──
+    const techResult = detectTechFull(relFiles, srcDir);
+    // flyhost.json runtime field overrides auto-detection
+    const tech = flyhostConfig.runtime || techResult.primary;
+
+    if (flyhostConfig.runtime) {
+      await logDeploy(deploymentId, "info", `Runtime: ${tech} (défini dans flyhost.json)`);
+    } else {
+      await logDeploy(deploymentId, "info", `Runtime détecté: ${tech} (confiance: ${techResult.isMixed ? "mixte" : "haute"})`);
+      if (techResult.isMixed) {
+        await logDeploy(deploymentId, "info", `⚡ Projet mixte — technologies détectées:`);
+        for (const t of techResult.all.slice(0, 4)) {
+          await logDeploy(deploymentId, "info", `   ${t.tech} (score: ${t.score}) — ${t.signals.join(", ")}`);
+        }
+      } else if (techResult.all.length > 0) {
+        const top = techResult.all[0];
+        for (const sig of top.signals) {
+          await logDeploy(deploymentId, "info", `  → ${sig}`);
+        }
+      }
+    }
+
+    // ── Smart project analysis (detects entry point, framework, env vars) ──
+    const analysis = analyzeProject(srcDir, tech, relFiles);
+    // Override entry if flyhost.json specifies one
+    if (flyhostConfig.entry && analysis.pteroEnvUpdates) {
+      const entryOverride = flyhostConfig.entry.trim();
+      if (tech === "nodejs" || tech === "bun" || tech === "deno") {
+        analysis.pteroEnvUpdates["MAIN_FILE"] = entryOverride;
+        const newStartup = tech === "bun" ? buildBunStartup(entryOverride)
+          : tech === "deno" ? buildDenoStartup(entryOverride)
+          : buildNodeStartup(entryOverride);
+        analysis.pteroEnvUpdates["STARTUP"] = newStartup;
+        analysis.fixes.push(`Point d'entrée surchargé: ${entryOverride}`);
+      } else if (tech === "python") {
+        analysis.pteroEnvUpdates["PY_FILE"] = entryOverride;
+        analysis.pteroEnvUpdates["STARTUP"] = `if [ -f /home/container/requirements.txt ]; then pip install -r /home/container/requirements.txt; fi; /usr/local/bin/python3 "/home/container/${entryOverride}"`;
+        analysis.fixes.push(`Point d'entrée surchargé: ${entryOverride}`);
+      }
+    }
+
+    await logDeploy(deploymentId, "info", `Analyse du projet (confiance: ${analysis.confidence}):`);
+    for (const fix of analysis.fixes) {
+      await logDeploy(deploymentId, "info", `  → ${fix}`);
+    }
+
+    // ── Egg switching: change Docker image if tech requires different environment ──
+    const requiredEggKey = TECH_TO_EGG[tech] || "nodejs";
+    const requiredEgg = EGG_CONFIGS[requiredEggKey];
+    if (requiredEgg) {
+      const currentEgg = await getServerCurrentEgg(identifier);
+      const needsSwitch = currentEgg && currentEgg.eggId !== requiredEgg.eggId;
+      if (needsSwitch) {
+        await logDeploy(deploymentId, "info", `🔄 Changement d'environnement requis: egg ${currentEgg!.eggId} → egg ${requiredEgg.eggId} (${requiredEgg.label})`);
+        const serverInfo = await getPteroServerByIdentifier(identifier);
+        if (serverInfo) {
+          const switchResult = await switchServerEgg(serverInfo.id, requiredEggKey, analysis.pteroEnvUpdates["STARTUP"] || "");
+          if (switchResult.switched) {
+            await logDeploy(deploymentId, "info", `  ✅ ${switchResult.message}`);
+            await logDeploy(deploymentId, "info", `  ⏳ Attente de la réinstallation du container (30s)...`);
+            await sleep(30000); // Wait for Wings to recreate the container
+          } else {
+            await logDeploy(deploymentId, "warn", `  ⚠️ ${switchResult.message}`);
+            await logDeploy(deploymentId, "warn", `  ℹ️ Le déploiement continue — la commande de démarrage sera adaptée au maximum possible`);
+          }
+        }
+      } else if (currentEgg) {
+        await logDeploy(deploymentId, "info", `  ✅ Image Docker correcte: ${currentEgg.image}`);
       }
     }
 
@@ -433,16 +695,29 @@ async function runDeploy(
       }
 
       if (!retried) {
-        // Log actionable suggestions
+        // Log actionable suggestions per tech type
         await logDeploy(deploymentId, "warn", `Suggestions de correction :`);
-        if (tech === "nodejs") {
-          await logDeploy(deploymentId, "warn", `  • Ajoutez un fichier flyhost.json avec { "start": "node votre-fichier.js" }`);
-          await logDeploy(deploymentId, "warn", `  • Vérifiez que votre point d'entrée (${analysis.pteroEnvUpdates["MAIN_FILE"] || "index.js"}) existe et démarre sans erreur`);
+        if (tech === "nodejs" || tech === "bun" || tech === "deno") {
+          const entry = analysis.pteroEnvUpdates["MAIN_FILE"] || "index.js";
+          await logDeploy(deploymentId, "warn", `  • Vérifiez que votre point d'entrée (${entry}) existe et démarre sans erreur`);
+          await logDeploy(deploymentId, "warn", `  • Ajoutez flyhost.json: { "runtime": "${tech}", "entry": "${entry}" }`);
+          await logDeploy(deploymentId, "warn", `  • Votre app doit écouter sur process.env.PORT (assigné par Pterodactyl)`);
         } else if (tech === "python") {
-          await logDeploy(deploymentId, "warn", `  • Ajoutez un fichier flyhost.json avec { "start": "python votre-script.py" }`);
           await logDeploy(deploymentId, "warn", `  • Vérifiez que requirements.txt liste toutes vos dépendances`);
+          await logDeploy(deploymentId, "warn", `  • Ajoutez flyhost.json: { "runtime": "python", "entry": "main.py" }`);
+          await logDeploy(deploymentId, "warn", `  • Votre app doit écouter sur le port $SERVER_PORT ou $PORT`);
+        } else if (tech === "php") {
+          await logDeploy(deploymentId, "warn", `  • Vérifiez que votre index.php est dans le bon dossier`);
+          await logDeploy(deploymentId, "warn", `  • Ajoutez flyhost.json: { "runtime": "php" }`);
+        } else if (tech === "ruby") {
+          await logDeploy(deploymentId, "warn", `  • Ruby nécessite un serveur avec l'image Ruby installée`);
+          await logDeploy(deploymentId, "warn", `  • Vérifiez que Gemfile liste toutes vos dépendances`);
+        } else if (tech === "go") {
+          await logDeploy(deploymentId, "warn", `  • Go nécessite un serveur avec l'image Go installée`);
+          await logDeploy(deploymentId, "warn", `  • Assurez-vous que main.go existe à la racine`);
         } else {
           await logDeploy(deploymentId, "warn", `  • Consultez la console du serveur pour voir le message d'erreur`);
+          await logDeploy(deploymentId, "warn", `  • Ajoutez flyhost.json: { "runtime": "<tech>", "start": "<commande>" }`);
         }
         // Still mark as deployed (server may need manual start with correct config)
         await logDeploy(deploymentId, "info", `Fichiers déployés — vérifiez la console du serveur pour diagnostiquer`);
@@ -528,13 +803,18 @@ function getAllFiles(dir: string, base = dir): string[] {
 
 function getDefaultStart(tech: string): string {
   const map: Record<string, string> = {
-    nodejs: "node index.js",
-    python: "python main.py",
-    php: "php -S 0.0.0.0:${SERVER_PORT:-3000}",
-    java: "java -jar app.jar",
-    static: "npx serve . -p ${SERVER_PORT:-3000}",
+    nodejs:    "node index.js",
+    bun:       "bun run index.ts",
+    deno:      "deno run --allow-net --allow-read --allow-env main.ts",
+    python:    "python main.py",
+    php:       "php -S 0.0.0.0:${SERVER_PORT:-3000}",
+    java:      "java -jar app.jar",
+    ruby:      "ruby app.rb",
+    go:        "go run main.go",
+    "rust-lang": "cargo run --release",
+    static:    "npx --yes serve . --listen ${SERVER_PORT:-3000}",
   };
-  return map[tech] || "";
+  return map[tech] || "node index.js";
 }
 
 // ————————————————————————————————————————————
@@ -785,13 +1065,204 @@ function analyzeJavaProject(srcDir: string, files: string[]): ProjectAnalysis {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  New analyzers: Bun, Deno, Ruby, Go, Rust, Static
+// ─────────────────────────────────────────────────────────────────────────────
+
+function analyzeBunProject(srcDir: string): ProjectAnalysis {
+  const fixes: string[] = [];
+  const pteroEnvUpdates: Record<string, string> = {};
+
+  let pkg: Record<string, any> = {};
+  try { pkg = JSON.parse(fs.readFileSync(path.join(srcDir, "package.json"), "utf8")); } catch {}
+
+  // Find entry point (same logic as node, but prefer bun-specific patterns)
+  let mainFile = pkg.main || "";
+  if (!mainFile && pkg.module) { mainFile = pkg.module; }
+  if (!mainFile && pkg.scripts?.start) {
+    const m = pkg.scripts.start.match(/(?:bun|node|ts-node|tsx)\s+(?:run\s+)?([^\s]+)/);
+    if (m) mainFile = m[1];
+  }
+  if (!mainFile) {
+    for (const c of ["index.ts", "index.js", "src/index.ts", "src/index.js", "app.ts", "app.js", "server.ts", "server.js"]) {
+      if (fs.existsSync(path.join(srcDir, c))) { mainFile = c; break; }
+    }
+  }
+  if (!mainFile) mainFile = "index.ts";
+
+  fixes.push(`Runtime: Bun (avec fallback Node.js si bun indisponible)`);
+  fixes.push(`Point d'entrée: ${mainFile}`);
+  if (fs.existsSync(path.join(srcDir, "package.json"))) fixes.push("package.json présent → npm install avant démarrage");
+
+  const startupCmd = buildBunStartup(mainFile);
+  pteroEnvUpdates["MAIN_FILE"] = mainFile;
+  pteroEnvUpdates["STARTUP"] = startupCmd;
+
+  return { startCommand: `bun run ${mainFile}`, pteroEnvUpdates, fixes, confidence: "high" };
+}
+
+function analyzeDenoProject(srcDir: string): ProjectAnalysis {
+  const fixes: string[] = [];
+  const pteroEnvUpdates: Record<string, string> = {};
+
+  let mainFile = "main.ts";
+  let confidence: "high" | "medium" | "low" = "medium";
+
+  // Check deno.json for tasks
+  let denoCfg: Record<string, any> = {};
+  try { denoCfg = JSON.parse(fs.readFileSync(path.join(srcDir, "deno.json"), "utf8")); } catch {}
+  try { denoCfg = JSON.parse(fs.readFileSync(path.join(srcDir, "deno.jsonc"), "utf8")); } catch {}
+
+  if (denoCfg.tasks?.start) {
+    const m = denoCfg.tasks.start.match(/deno\s+run[^\s]*\s+([^\s]+)/);
+    if (m) { mainFile = m[1]; confidence = "high"; fixes.push(`deno.json tasks.start → ${mainFile}`); }
+  } else if (denoCfg.main) {
+    mainFile = denoCfg.main; confidence = "high"; fixes.push(`deno.json main → ${mainFile}`);
+  } else {
+    for (const c of ["main.ts", "mod.ts", "index.ts", "server.ts", "app.ts", "main.js"]) {
+      if (fs.existsSync(path.join(srcDir, c))) { mainFile = c; fixes.push(`Point d'entrée Deno: ${c}`); break; }
+    }
+  }
+
+  fixes.push(`Runtime: Deno (avec fallback Node.js si deno indisponible)`);
+
+  const startupCmd = buildDenoStartup(mainFile);
+  pteroEnvUpdates["MAIN_FILE"] = mainFile;
+  pteroEnvUpdates["STARTUP"] = startupCmd;
+
+  return { startCommand: `deno run --allow-net --allow-read --allow-env ${mainFile}`, pteroEnvUpdates, fixes, confidence };
+}
+
+function analyzeRubyProject(srcDir: string): ProjectAnalysis {
+  const fixes: string[] = [];
+  const pteroEnvUpdates: Record<string, string> = {};
+
+  let mainFile = "";
+  let confidence: "high" | "medium" | "low" = "medium";
+  let startCmd = "";
+
+  // Detect Rails
+  if (fs.existsSync(path.join(srcDir, "config", "application.rb"))) {
+    fixes.push("Ruby on Rails détecté → rails server");
+    startCmd = `if [ -f /home/container/Gemfile ]; then bundle install 2>&1 || true; fi; cd /home/container && bundle exec rails server -b 0.0.0.0 -p \${SERVER_PORT:-3000}`;
+    confidence = "high";
+  }
+  // Detect Sinatra (config.ru)
+  else if (fs.existsSync(path.join(srcDir, "config.ru"))) {
+    fixes.push("Rack/Sinatra détecté → bundle exec rackup");
+    startCmd = `if [ -f /home/container/Gemfile ]; then bundle install 2>&1 || true; fi; cd /home/container && bundle exec rackup --host 0.0.0.0 --port \${SERVER_PORT:-3000}`;
+    confidence = "high";
+  }
+  // Generic Ruby
+  else {
+    for (const c of ["app.rb", "main.rb", "server.rb", "run.rb", "index.rb"]) {
+      if (fs.existsSync(path.join(srcDir, c))) { mainFile = c; break; }
+    }
+    if (!mainFile) { mainFile = "app.rb"; confidence = "low"; }
+    else confidence = "high";
+    fixes.push(`Point d'entrée Ruby: ${mainFile}`);
+    startCmd = buildRubyStartup(mainFile);
+  }
+
+  pteroEnvUpdates["STARTUP"] = startCmd;
+  fixes.push(`⚠️ Ruby nécessite un serveur avec l'image Ruby. Sans ruby binaire, le lancement échouera.`);
+
+  return { startCommand: startCmd, pteroEnvUpdates, fixes, confidence };
+}
+
+function analyzeGoProject(srcDir: string): ProjectAnalysis {
+  const fixes: string[] = [];
+  const pteroEnvUpdates: Record<string, string> = {};
+
+  let mainFile = "main.go";
+  let confidence: "high" | "medium" | "low" = "medium";
+
+  // Find the main package
+  if (fs.existsSync(path.join(srcDir, "main.go"))) {
+    mainFile = "main.go"; confidence = "high"; fixes.push("main.go trouvé");
+  } else if (fs.existsSync(path.join(srcDir, "cmd", "main.go"))) {
+    mainFile = "cmd/main.go"; confidence = "high"; fixes.push("cmd/main.go (structure Go standard)");
+  } else {
+    fixes.push("Aucun main.go trouvé — défaut: main.go");
+    confidence = "low";
+  }
+
+  // Read go.mod for module name
+  let modName = "";
+  try {
+    const goMod = fs.readFileSync(path.join(srcDir, "go.mod"), "utf8");
+    const m = goMod.match(/^module\s+(.+)$/m);
+    if (m) { modName = m[1].trim(); fixes.push(`Module Go: ${modName}`); }
+  } catch {}
+
+  const startupCmd = buildGoStartup(mainFile);
+  pteroEnvUpdates["STARTUP"] = startupCmd;
+  fixes.push(`⚠️ Go nécessite un serveur avec l'image Go. Sans go binaire, le lancement échouera.`);
+
+  return { startCommand: `go run ${mainFile}`, pteroEnvUpdates, fixes, confidence };
+}
+
+function analyzeRustLangProject(srcDir: string): ProjectAnalysis {
+  const fixes: string[] = [];
+  const pteroEnvUpdates: Record<string, string> = {};
+
+  // Read Cargo.toml for binary name
+  let binName = "";
+  try {
+    const cargoToml = fs.readFileSync(path.join(srcDir, "Cargo.toml"), "utf8");
+    const m = cargoToml.match(/^\[package\][\s\S]*?name\s*=\s*"([^"]+)"/m);
+    if (m) { binName = m[1]; fixes.push(`Crate Rust: ${binName}`); }
+  } catch {}
+
+  const startupCmd = `if command -v cargo &>/dev/null; then cd /home/container && cargo build --release 2>&1 && ./target/release/${binName || "app"}; else echo "Cargo/Rust non disponible dans cette image"; fi`;
+  pteroEnvUpdates["STARTUP"] = startupCmd;
+  fixes.push(`⚠️ Rust nécessite un serveur avec Cargo/Rust installé.`);
+
+  return {
+    startCommand: `cargo run --release`,
+    pteroEnvUpdates, fixes, confidence: binName ? "high" : "low",
+  };
+}
+
+function analyzeStaticProject(srcDir: string, files: string[]): ProjectAnalysis {
+  const fixes: string[] = [];
+  const pteroEnvUpdates: Record<string, string> = {};
+
+  // Detect document root
+  let docRoot = ".";
+  if (fs.existsSync(path.join(srcDir, "dist", "index.html"))) {
+    docRoot = "dist"; fixes.push("Dossier dist/ détecté (build Vite/Webpack)");
+  } else if (fs.existsSync(path.join(srcDir, "build", "index.html"))) {
+    docRoot = "build"; fixes.push("Dossier build/ détecté");
+  } else if (fs.existsSync(path.join(srcDir, "public", "index.html"))) {
+    docRoot = "public"; fixes.push("Dossier public/");
+  } else {
+    fixes.push("index.html à la racine");
+  }
+
+  fixes.push(`Serveur de fichiers statiques: npx serve ${docRoot}`);
+
+  const startupCmd = buildStaticStartup(docRoot);
+  pteroEnvUpdates["STARTUP"] = startupCmd;
+  pteroEnvUpdates["MAIN_FILE"] = `${docRoot}/index.html`;
+
+  return { startCommand: `npx serve ${docRoot}`, pteroEnvUpdates, fixes, confidence: "high" };
+}
+
 export function analyzeProject(srcDir: string, tech: string, files: string[]): ProjectAnalysis {
   switch (tech) {
-    case "nodejs": return analyzeNodeProject(srcDir);
-    case "python": return analyzePythonProject(srcDir);
-    case "php":    return analyzePhpProject(srcDir);
-    case "java":   return analyzeJavaProject(srcDir, files);
-    default: return { startCommand: getDefaultStart(tech), pteroEnvUpdates: {}, fixes: [], confidence: "low" };
+    case "nodejs":    return analyzeNodeProject(srcDir);
+    case "bun":       return analyzeBunProject(srcDir);
+    case "deno":      return analyzeDenoProject(srcDir);
+    case "python":    return analyzePythonProject(srcDir);
+    case "php":       return analyzePhpProject(srcDir);
+    case "java":      return analyzeJavaProject(srcDir, files);
+    case "ruby":      return analyzeRubyProject(srcDir);
+    case "go":        return analyzeGoProject(srcDir);
+    case "rust-lang": return analyzeRustLangProject(srcDir);
+    case "static":    return analyzeStaticProject(srcDir, files);
+    default:
+      return { startCommand: getDefaultStart(tech), pteroEnvUpdates: {}, fixes: [`Tech: ${tech} (non reconnue — commande par défaut)`], confidence: "low" };
   }
 }
 
