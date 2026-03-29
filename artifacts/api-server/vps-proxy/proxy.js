@@ -29,6 +29,35 @@ const API_URL      = (process.env.API_URL || "https://a9f3b24c-2c6e-4e8f-b135-b3
 const LOCAL_DOMAIN = process.env.LOCAL_DOMAIN || "flihost.site";
 const REFRESH_MS   = parseInt(process.env.REFRESH_MS || "30000", 10);
 
+/**
+ * Detect the Docker host gateway IP by reading /proc/net/route.
+ * Inside a Pterodactyl container, 127.0.0.1 is the container itself — NOT the host.
+ * The other containers are reachable via the Docker bridge gateway (e.g. 172.18.0.1).
+ * Falls back to 127.0.0.1 if running outside Docker (e.g. dev with host networking).
+ */
+function detectHostGateway() {
+  try {
+    const routes = fs.readFileSync("/proc/net/route", "utf8");
+    for (const line of routes.split("\n").slice(1)) {
+      const parts = line.trim().split(/\s+/);
+      if (!parts[1] || !parts[2]) continue;
+      if (parts[1] === "00000000" && parts[2] !== "00000000") {
+        const hex = parts[2];
+        const ip = [
+          parseInt(hex.slice(6, 8), 16),
+          parseInt(hex.slice(4, 6), 16),
+          parseInt(hex.slice(2, 4), 16),
+          parseInt(hex.slice(0, 2), 16),
+        ].join(".");
+        return ip;
+      }
+    }
+  } catch (_) {}
+  return "127.0.0.1";
+}
+
+const HOST_GATEWAY = process.env.HOST_GATEWAY || detectHostGateway();
+
 // Dossier des fichiers statiques du dashboard (déployé avec le proxy)
 const STATIC_DIR = path.join(__dirname, "public");
 
@@ -68,14 +97,14 @@ async function refreshTable() {
 
     routeTable.clear();
     let skipped = 0;
-    for (const { subdomain, host, port } of (data.routes || [])) {
+    for (const { subdomain, port } of (data.routes || [])) {
       if (parseInt(port, 10) === PROXY_PORT) { skipped++; continue; }
       routeTable.set(subdomain.toLowerCase(), {
-        host: host || "127.0.0.1",
+        host: HOST_GATEWAY,   // Route via Docker gateway to reach other containers on the host
         port: parseInt(port, 10),
       });
     }
-    console.log(`[proxy] Table: ${routeTable.size} routes (${skipped} self-excluded)`);
+    console.log(`[proxy] Table: ${routeTable.size} routes via ${HOST_GATEWAY} (${skipped} self-excluded)`);
   } catch (err) {
     console.error(`[proxy] Table refresh failed: ${err.message}`);
   }

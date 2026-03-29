@@ -14,7 +14,9 @@ router.get("/proxy/routes", async (_req, res): Promise<void> => {
     const rows = await db.select().from(serverSubdomainsTable);
     const routes = rows.map((r) => ({
       subdomain: r.subdomain,
-      host: r.ip || "127.0.0.1",
+      // Always use 127.0.0.1 — the proxy runs on the same VPS as the containers,
+      // so localhost routing avoids firewall issues with the public IP.
+      host: "127.0.0.1",
       port: r.port,
     }));
     res.json({ routes, total: routes.length, updatedAt: new Date().toISOString() });
