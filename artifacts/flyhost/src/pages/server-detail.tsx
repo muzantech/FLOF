@@ -180,6 +180,8 @@ function ConsolePanel({
   const [command, setCommand] = useState("");
   const [serverState, setServerState] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const manualDisconnect = useRef(false);
   const consoleEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
@@ -201,15 +203,16 @@ function ConsolePanel({
 
   function connect() {
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+    if (reconnectRef.current) { clearTimeout(reconnectRef.current); reconnectRef.current = null; }
+    manualDisconnect.current = false;
     setConnecting(true);
-    addLine("Connexion au serveur...", "system");
 
     try {
       const ws = new WebSocket(getWsUrl());
       wsRef.current = ws;
 
       ws.onopen = () => {
-        addLine("WebSocket ouvert, authentification...", "system");
+        // no log needed — auth success confirms connection
       };
 
       ws.onmessage = (e) => {
@@ -222,7 +225,6 @@ function ConsolePanel({
             return;
           }
           if (msg.event === "flyhost_disconnected") {
-            addLine("Connexion Pterodactyl fermée", "system");
             setConnected(false); setConnecting(false);
             return;
           }
@@ -238,7 +240,6 @@ function ConsolePanel({
             setServerState(state);
             addLine(`● État: ${state}`, "system");
           } else if (msg.event === "stats") {
-            // silently update state from stats
             if (msg.args?.[0]) {
               try { const s = JSON.parse(msg.args[0]); if (s.state) setServerState(s.state); } catch {}
             }
@@ -251,28 +252,35 @@ function ConsolePanel({
       };
 
       ws.onerror = () => {
-        addLine("Erreur WebSocket — connexion interrompue", "error");
         setConnected(false); setConnecting(false);
       };
 
       ws.onclose = (e) => {
         setConnected(false); setConnecting(false);
         if (wsRef.current === ws) {
-          addLine(`Connexion fermée (code: ${e.code})`, "system");
           wsRef.current = null;
+          // Auto-reconnect after 3s unless user manually disconnected
+          if (!manualDisconnect.current) {
+            addLine("Reconnexion dans 3s…", "system");
+            reconnectRef.current = setTimeout(() => { connect(); }, 3000);
+          }
         }
       };
     } catch (err: any) {
       addLine(`Erreur: ${err.message}`, "error");
       setConnecting(false);
+      if (!manualDisconnect.current) {
+        reconnectRef.current = setTimeout(() => { connect(); }, 4000);
+      }
     }
   }
 
   function disconnect() {
+    manualDisconnect.current = true;
+    if (reconnectRef.current) { clearTimeout(reconnectRef.current); reconnectRef.current = null; }
     wsRef.current?.close();
     wsRef.current = null;
     setConnected(false);
-    addLine("Déconnecté", "system");
   }
 
   function sendCommand() {
@@ -282,8 +290,14 @@ function ConsolePanel({
     setCommand("");
   }
 
+  // Auto-connect when component mounts
   useEffect(() => {
-    return () => { wsRef.current?.close(); };
+    connect();
+    return () => {
+      manualDisconnect.current = true;
+      if (reconnectRef.current) clearTimeout(reconnectRef.current);
+      wsRef.current?.close();
+    };
   }, []);
 
   const stateColor =
@@ -312,27 +326,22 @@ function ConsolePanel({
 
       {/* Console toolbar */}
       <div className="flex items-center gap-2 flex-shrink-0">
-        <div className={`flex items-center gap-2 text-xs font-medium ${connected ? "text-emerald-400" : connecting ? "text-yellow-400" : "text-zinc-600"}`}>
-          <span className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-emerald-400" : connecting ? "bg-yellow-400 animate-pulse" : "bg-zinc-600"}`} />
-          {connected ? "Console connectée" : connecting ? "Connexion…" : "Console déconnectée"}
+        <div className={`flex items-center gap-2 text-xs font-medium ${connected ? "text-emerald-400" : connecting ? "text-yellow-400" : "text-zinc-500"}`}>
+          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${connected ? "bg-emerald-400" : connecting ? "bg-yellow-400 animate-pulse" : "bg-zinc-600 animate-pulse"}`} />
+          {connected ? "Console connectée" : connecting ? "Connexion en cours…" : "Reconnexion…"}
         </div>
         <div className="flex-1" />
         <Button size="sm" variant="ghost" className="h-7 text-xs text-zinc-500 hover:text-white gap-1 px-2" onClick={() => setLines([])}>
           <X className="w-3 h-3" /> Effacer
         </Button>
-        {connected ? (
-          <Button size="sm" variant="ghost" className="h-7 text-xs text-red-400 hover:bg-red-500/10 gap-1 px-2" onClick={disconnect}>
-            <Square className="w-3 h-3" /> Déconnecter
+        {!connected && !connecting && (
+          <Button size="sm" variant="ghost" className="h-7 text-xs text-emerald-400 hover:bg-emerald-500/10 gap-1 px-2" onClick={() => { manualDisconnect.current = false; connect(); }}>
+            <Play className="w-3 h-3 fill-current" /> Reconnecter
           </Button>
-        ) : (
-          <Button
-            size="sm"
-            className="h-7 text-xs bg-emerald-500 hover:bg-emerald-400 text-black font-semibold gap-1 px-3"
-            onClick={connect}
-            disabled={connecting}
-          >
-            {connecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3 fill-current" />}
-            Connecter
+        )}
+        {connected && (
+          <Button size="sm" variant="ghost" className="h-7 text-xs text-zinc-500 hover:text-red-400 gap-1 px-2" onClick={disconnect}>
+            <Square className="w-3 h-3" /> Déconnecter
           </Button>
         )}
       </div>
@@ -340,7 +349,7 @@ function ConsolePanel({
       {/* Console output */}
       <div className="flex-1 min-h-0 rounded-xl border border-zinc-800 bg-black overflow-y-auto font-mono text-xs p-4 space-y-0.5">
         {lines.length === 0 ? (
-          <p className="text-zinc-700 italic">Cliquez sur "Connecter" pour ouvrir la console en temps réel…</p>
+          <p className="text-zinc-700 italic">{connecting ? "Connexion à la console…" : "En attente des logs du serveur…"}</p>
         ) : (
           lines.map((line, i) => (
             <div
