@@ -18,6 +18,7 @@ import resellerRouter from "./reseller";
 import apikeysRouter from "./apikeys";
 import schedulesRouter from "./schedules";
 import proxyRouter from "./proxy";
+import adminRouter from "./admin";
 
 const router: IRouter = Router();
 
@@ -40,5 +41,6 @@ router.use(resellerRouter);
 router.use(apikeysRouter);
 router.use(schedulesRouter);
 router.use(proxyRouter);
+router.use(adminRouter);
 
 export default router;

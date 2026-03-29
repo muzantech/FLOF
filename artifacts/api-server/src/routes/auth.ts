@@ -99,6 +99,11 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     return;
   }
 
+  if (user.banned) {
+    res.status(403).json({ error: "Votre compte a été banni. Contactez le support." });
+    return;
+  }
+
   const token = generateToken(user.id);
   res.json({ token, user: publicUser(user) });
 });

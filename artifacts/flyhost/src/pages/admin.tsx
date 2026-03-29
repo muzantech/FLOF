@@ -24,6 +24,12 @@ import {
   Activity,
   Database,
   Zap,
+  Ban,
+  UserCheck,
+  UserX,
+  Crown,
+  MinusCircle,
+  PlusCircle,
 } from "lucide-react";
 
 const RESELLER_PLANS = [
@@ -65,6 +71,13 @@ export default function AdminPage() {
   const [pteroLoading, setPteroLoading] = useState(false);
   const [search, setSearch] = useState("");
 
+  // Users management
+  const [usersList, setUsersList] = useState<any[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [userSearch, setUserSearch] = useState("");
+  const [coinsModal, setCoinsModal] = useState<{ userId: number; name: string; coins: number } | null>(null);
+  const [coinsAmount, setCoinsAmount] = useState("");
+
   const coins = (user as any)?.coins ?? 0;
 
   async function loadPteroData() {
@@ -87,7 +100,90 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (activeTab === "pterodactyl") loadPteroData();
+    if (activeTab === "users") loadUsers();
   }, [activeTab]);
+
+  async function loadUsers() {
+    setUsersLoading(true);
+    try {
+      const token = localStorage.getItem("flyhost_token");
+      const res = await fetch("/api/admin/users", { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const d = await res.json();
+        setUsersList(d.users || []);
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Erreur", description: e.message });
+    }
+    setUsersLoading(false);
+  }
+
+  async function handleBan(userId: number, banned: boolean) {
+    const token = localStorage.getItem("flyhost_token");
+    const res = await fetch(`/api/admin/users/${userId}/ban`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ banned }),
+    });
+    if (res.ok) {
+      toast({ title: banned ? "Utilisateur banni" : "Utilisateur débanni" });
+      setUsersList(prev => prev.map(u => u.id === userId ? { ...u, banned } : u));
+    } else {
+      const d = await res.json();
+      toast({ variant: "destructive", title: "Erreur", description: d.error });
+    }
+  }
+
+  async function handleDeleteUser(userId: number, name: string) {
+    if (!confirm(`Supprimer définitivement le compte de "${name}" ?`)) return;
+    const token = localStorage.getItem("flyhost_token");
+    const res = await fetch(`/api/admin/users/${userId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) {
+      toast({ title: "Compte supprimé" });
+      setUsersList(prev => prev.filter(u => u.id !== userId));
+    } else {
+      const d = await res.json();
+      toast({ variant: "destructive", title: "Erreur", description: d.error });
+    }
+  }
+
+  async function handleCoins(userId: number, amount: number) {
+    const token = localStorage.getItem("flyhost_token");
+    const res = await fetch(`/api/admin/users/${userId}/coins`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ amount }),
+    });
+    if (res.ok) {
+      const d = await res.json();
+      toast({ title: `Coins mis à jour → ${d.coins}` });
+      setUsersList(prev => prev.map(u => u.id === userId ? { ...u, coins: d.coins } : u));
+      setCoinsModal(null);
+      setCoinsAmount("");
+    } else {
+      const d = await res.json();
+      toast({ variant: "destructive", title: "Erreur", description: d.error });
+    }
+  }
+
+  async function handleRole(userId: number, role: string) {
+    const token = localStorage.getItem("flyhost_token");
+    const res = await fetch(`/api/admin/users/${userId}/role`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ role }),
+    });
+    if (res.ok) {
+      toast({ title: `Rôle changé → ${role}` });
+      setUsersList(prev => prev.map(u => u.id === userId ? { ...u, role } : u));
+    } else {
+      const d = await res.json();
+      toast({ variant: "destructive", title: "Erreur", description: d.error });
+    }
+  }
 
   async function handlePowerAction(identifier: string, action: "start" | "stop" | "restart") {
     try {
@@ -146,7 +242,8 @@ export default function AdminPage() {
 
   const TABS = [
     { id: "overview", label: "Vue d'ensemble", icon: BarChart3 },
-    { id: "pterodactyl", label: "Pterodactyl", icon: Server },
+    { id: "users", label: "Utilisateurs", icon: Users, adminOnly: true },
+    { id: "pterodactyl", label: "Pterodactyl", icon: Server, adminOnly: true },
     { id: "reseller", label: "Revendeur", icon: ShoppingBag },
     { id: "stats", label: "Statistiques", icon: Activity },
   ];
@@ -177,7 +274,7 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div className="flex gap-1 p-1 rounded-xl border border-zinc-800 bg-zinc-900/50 overflow-x-auto">
-          {TABS.filter(t => isAdmin || t.id !== "pterodactyl").map(tab => (
+          {TABS.filter(t => isAdmin || !t.adminOnly).map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
@@ -261,6 +358,190 @@ export default function AdminPage() {
                   <p className="text-sm font-semibold text-yellow-400">Mode Administrateur</p>
                   <p className="text-xs text-zinc-500">Vous avez accès à toutes les fonctionnalités de gestion de la plateforme.</p>
                 </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Users Tab (admin only) ── */}
+        {activeTab === "users" && isAdmin && (
+          <div className="space-y-5">
+            {/* Coins Modal */}
+            {coinsModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                <div className="w-full max-w-sm rounded-2xl border border-zinc-700 bg-zinc-900 p-6 shadow-xl">
+                  <h3 className="text-base font-bold text-white mb-1">Modifier les coins</h3>
+                  <p className="text-sm text-zinc-400 mb-4">
+                    <span className="text-white font-semibold">{coinsModal.name}</span> — actuellement{" "}
+                    <span className="text-yellow-400 font-semibold">{coinsModal.coins}</span> coins
+                  </p>
+                  <Input
+                    type="number"
+                    placeholder="Ex: +500 ou -200"
+                    value={coinsAmount}
+                    onChange={e => setCoinsAmount(e.target.value)}
+                    className="bg-zinc-800 border-zinc-600 focus:border-yellow-400/50 mb-4"
+                    autoFocus
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      className="flex-1 bg-yellow-400 text-black hover:bg-yellow-300 font-semibold"
+                      onClick={() => {
+                        const n = parseInt(coinsAmount);
+                        if (isNaN(n) || n === 0) return toast({ variant: "destructive", title: "Montant invalide" });
+                        handleCoins(coinsModal.userId, n);
+                      }}
+                    >
+                      Confirmer
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="flex-1 border-zinc-700 text-zinc-400"
+                      onClick={() => { setCoinsModal(null); setCoinsAmount(""); }}
+                    >
+                      Annuler
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Header */}
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 flex-1">
+                <Input
+                  placeholder="Rechercher un utilisateur…"
+                  value={userSearch}
+                  onChange={e => setUserSearch(e.target.value)}
+                  className="bg-zinc-900 border-zinc-700 focus:border-yellow-400/50 max-w-sm"
+                />
+                <p className="text-sm text-zinc-600 flex-shrink-0">
+                  {usersList.filter(u =>
+                    u.name.toLowerCase().includes(userSearch.toLowerCase()) ||
+                    u.email.toLowerCase().includes(userSearch.toLowerCase())
+                  ).length} utilisateur(s)
+                </p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={loadUsers} disabled={usersLoading} className="text-zinc-400 hover:text-white">
+                <RefreshCw className={`w-4 h-4 ${usersLoading ? "animate-spin" : ""}`} />
+              </Button>
+            </div>
+
+            {/* Stats rapides */}
+            <div className="grid grid-cols-3 gap-4">
+              {[
+                { label: "Total", value: usersList.length, color: "text-white", icon: Users },
+                { label: "Bannis", value: usersList.filter(u => u.banned).length, color: "text-red-400", icon: Ban },
+                { label: "Admins", value: usersList.filter(u => u.role === "admin" || u.role === "superadmin").length, color: "text-yellow-400", icon: Crown },
+              ].map(s => (
+                <div key={s.label} className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 text-center">
+                  <s.icon className={`w-5 h-5 mx-auto mb-2 ${s.color}`} />
+                  <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+                  <p className="text-xs text-zinc-600 mt-1">{s.label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Users list */}
+            {usersLoading ? (
+              <div className="flex items-center justify-center py-12 text-zinc-500 gap-2">
+                <Loader2 className="w-5 h-5 animate-spin" /> Chargement…
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {usersList
+                  .filter(u =>
+                    u.name.toLowerCase().includes(userSearch.toLowerCase()) ||
+                    u.email.toLowerCase().includes(userSearch.toLowerCase()) ||
+                    u.username.toLowerCase().includes(userSearch.toLowerCase())
+                  )
+                  .map(u => (
+                    <div
+                      key={u.id}
+                      className={`rounded-xl border bg-zinc-900/40 p-4 transition-all ${u.banned ? "border-red-500/30 bg-red-500/3" : "border-zinc-800 hover:border-zinc-700"}`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        {/* Avatar + info */}
+                        <div className="flex items-center gap-3">
+                          <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${u.banned ? "bg-red-500/20 text-red-400" : "bg-zinc-800 text-zinc-300"}`}>
+                            {u.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-semibold text-white text-sm">{u.name}</p>
+                              {u.banned && <Badge className="bg-red-500/10 text-red-400 border-red-500/20 text-xs">Banni</Badge>}
+                              {u.role === "admin" && <Badge className="bg-yellow-400/10 text-yellow-400 border-yellow-400/20 text-xs">Admin</Badge>}
+                              {u.role === "superadmin" && <Badge className="bg-purple-500/10 text-purple-400 border-purple-500/20 text-xs">Super Admin</Badge>}
+                              {!u.emailVerified && <Badge className="bg-zinc-700/50 text-zinc-500 border-zinc-600/20 text-xs">Non vérifié</Badge>}
+                            </div>
+                            <div className="flex items-center gap-3 text-xs text-zinc-500 mt-0.5">
+                              <span>{u.email}</span>
+                              <span className="text-zinc-700">@{u.username}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Coins + actions */}
+                        <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+                          {/* Coins */}
+                          <button
+                            onClick={() => setCoinsModal({ userId: u.id, name: u.name, coins: u.coins })}
+                            className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-yellow-400/10 border border-yellow-400/20 text-yellow-400 text-xs font-semibold hover:bg-yellow-400/20 transition-all"
+                          >
+                            <Coins className="w-3 h-3" />
+                            {u.coins}
+                          </button>
+
+                          {/* Rôle toggle */}
+                          {u.role !== "superadmin" && u.id !== (user as any)?.id && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className={`h-7 px-2 text-xs gap-1 ${u.role === "admin" ? "text-yellow-400 hover:bg-yellow-400/10" : "text-zinc-500 hover:text-zinc-300"}`}
+                              onClick={() => handleRole(u.id, u.role === "admin" ? "user" : "admin")}
+                              title={u.role === "admin" ? "Rétrograder" : "Promouvoir admin"}
+                            >
+                              <Crown className="w-3 h-3" />
+                              {u.role === "admin" ? "Admin" : "User"}
+                            </Button>
+                          )}
+
+                          {/* Ban/Unban */}
+                          {u.id !== (user as any)?.id && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className={`h-7 px-2 text-xs gap-1 ${u.banned ? "text-emerald-400 hover:bg-emerald-500/10" : "text-orange-400 hover:bg-orange-500/10"}`}
+                              onClick={() => handleBan(u.id, !u.banned)}
+                            >
+                              {u.banned ? <UserCheck className="w-3 h-3" /> : <Ban className="w-3 h-3" />}
+                              {u.banned ? "Débannir" : "Bannir"}
+                            </Button>
+                          )}
+
+                          {/* Delete */}
+                          {u.id !== (user as any)?.id && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0 text-red-400 hover:bg-red-500/10"
+                              onClick={() => handleDeleteUser(u.id, u.name)}
+                              title="Supprimer le compte"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                {usersList.length === 0 && !usersLoading && (
+                  <div className="py-10 text-center text-zinc-600">
+                    <Users className="w-8 h-8 mx-auto mb-3 text-zinc-700" />
+                    <p className="text-sm">Aucun utilisateur trouvé</p>
+                  </div>
+                )}
               </div>
             )}
           </div>
