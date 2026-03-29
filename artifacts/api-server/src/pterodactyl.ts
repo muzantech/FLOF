@@ -335,7 +335,8 @@ export async function deletePteroServer(serverId: number) {
 }
 
 export async function getPteroServerByIdentifier(identifier: string): Promise<{ id: number } | null> {
-  const data = await pteroAppRequest(`/servers?filter[identifier]=${identifier}&per_page=10`);
+  // The Application API supports filter[uuidShort] for the 8-char identifier (e.g. "1f8fdd49")
+  const data = await pteroAppRequest(`/servers?filter[uuidShort]=${identifier}&per_page=10`);
   const found = data.data?.find((s: any) => s.attributes.identifier === identifier);
   return found ? { id: found.attributes.id } : null;
 }
