@@ -1,39 +1,65 @@
 #!/usr/bin/env node
 /**
- * FlyHost Reverse Proxy
- * ─────────────────────
+ * FlyHost Complete Proxy
+ * ──────────────────────
  * Tourne dans le conteneur Pterodactyl "flyhost" (port 3000).
- * Nginx forward *.flihost.site:80 → ce conteneur:3000.
- * Le proxy lit la table de routage depuis l'API FlyHost toutes les 30s,
- * puis forward les requêtes HTTP vers le bon conteneur selon le sous-domaine.
+ * Cloudflare / Nginx forward tout *.flihost.site:443 → ce conteneur:3000.
  *
- * Variables d'environnement (configurées via Pterodactyl) :
- *   PORT          Port d'écoute (injecté par Wings, défaut 3000)
- *   API_URL       URL de l'API FlyHost pour récupérer la table de routage
- *   LOCAL_DOMAIN  Domaine à gérer (défaut: flihost.site)
- *   REFRESH_MS    Intervalle de rafraîchissement en ms (défaut: 30000)
+ * Ce proxy gère :
+ *  1. flihost.site  → sert les fichiers statiques du dashboard React (dossier ./public/)
+ *  2. flihost.site/api/*  → forward vers l'API FlyHost (Replit)
+ *  3. *.flihost.site  → forward vers le container Pterodactyl correspondant
+ *
+ * Variables d'environnement :
+ *   PORT         Port d'écoute (injecté par Wings, défaut 3000)
+ *   API_URL      URL de l'API FlyHost pour les routes + forward API (défaut hardcodé)
+ *   LOCAL_DOMAIN Domaine à gérer (défaut: flihost.site)
+ *   REFRESH_MS   Intervalle de rafraîchissement de la table de routage (défaut: 30000)
  */
 
-const http = require("http");
-const net  = require("net");
+const http   = require("http");
+const https  = require("https");
+const net    = require("net");
+const fs     = require("fs");
+const path   = require("path");
+const url    = require("url");
 
 const PROXY_PORT   = parseInt(process.env.PORT   || "3000", 10);
-// API_URL: env var pris en priorité, sinon URL de l'API FlyHost sur Replit (générée lors du déploiement)
 const API_URL      = (process.env.API_URL || "https://a9f3b24c-2c6e-4e8f-b135-b330026f22e3-00-3ndcmgith71am.riker.replit.dev").replace(/\/$/, "");
 const LOCAL_DOMAIN = process.env.LOCAL_DOMAIN || "flihost.site";
 const REFRESH_MS   = parseInt(process.env.REFRESH_MS || "30000", 10);
 
+// Dossier des fichiers statiques du dashboard (déployé avec le proxy)
+const STATIC_DIR = path.join(__dirname, "public");
+
 // In-memory routing table: subdomain → { host, port }
 const routeTable = new Map();
+
+// ─────────────────── MIME types ──────────────────────────────────────────────
+const MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".js":   "application/javascript",
+  ".css":  "text/css",
+  ".svg":  "image/svg+xml",
+  ".png":  "image/png",
+  ".jpg":  "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".ico":  "image/x-icon",
+  ".webp": "image/webp",
+  ".woff": "font/woff",
+  ".woff2":"font/woff2",
+  ".ttf":  "font/ttf",
+  ".json": "application/json",
+  ".txt":  "text/plain",
+};
+
+function getMime(filePath) {
+  return MIME[path.extname(filePath).toLowerCase()] || "application/octet-stream";
+}
 
 // ─────────────────── Routing table refresh ───────────────────────────────────
 async function refreshTable() {
   try {
-    if (!API_URL) {
-      console.error("[proxy] API_URL not set — routing table empty");
-      return;
-    }
-
     const res = await fetch(`${API_URL}/api/proxy/routes`, {
       signal: AbortSignal.timeout(10_000),
     });
@@ -43,23 +69,19 @@ async function refreshTable() {
     routeTable.clear();
     let skipped = 0;
     for (const { subdomain, host, port } of (data.routes || [])) {
-      // Skip ourselves to avoid infinite loop
-      if (parseInt(port, 10) === PROXY_PORT && subdomain !== "_keep_") {
-        skipped++;
-        continue;
-      }
+      if (parseInt(port, 10) === PROXY_PORT) { skipped++; continue; }
       routeTable.set(subdomain.toLowerCase(), {
         host: host || "127.0.0.1",
         port: parseInt(port, 10),
       });
     }
-    console.log(`[proxy] Routing table: ${routeTable.size} routes loaded (${skipped} self-excluded)`);
+    console.log(`[proxy] Table: ${routeTable.size} routes (${skipped} self-excluded)`);
   } catch (err) {
     console.error(`[proxy] Table refresh failed: ${err.message}`);
   }
 }
 
-// ─────────────────── Error/landing pages ─────────────────────────────────────
+// ─────────────────── Error pages ─────────────────────────────────────────────
 function sendHtml(res, status, body) {
   const html = `<!DOCTYPE html><html lang="fr">
 <head><meta charset="utf-8"><title>FlyHost</title>
@@ -76,41 +98,74 @@ a{color:#facc15}code{background:#09090b;color:#71717a;padding:.2rem .6rem;border
   res.end(html);
 }
 
-// ─────────────────── Main proxy handler ──────────────────────────────────────
-function handleRequest(clientReq, clientRes) {
-  const rawHost = (clientReq.headers["host"] || "").toLowerCase();
-  const host = rawHost.split(":")[0];
+// ─────────────────── Static file server (dashboard) ──────────────────────────
+function serveStatic(reqPath, clientRes) {
+  // Normalize path
+  let filePath = path.join(STATIC_DIR, reqPath === "/" ? "index.html" : reqPath);
+  // Prevent directory traversal
+  if (!filePath.startsWith(STATIC_DIR)) {
+    clientRes.writeHead(403); clientRes.end(); return;
+  }
 
-  const suffix = `.${LOCAL_DOMAIN}`;
+  // If the file doesn't exist AND it doesn't look like a static asset → SPA fallback
+  if (!fs.existsSync(filePath) && !path.extname(reqPath)) {
+    filePath = path.join(STATIC_DIR, "index.html");
+  }
 
-  // Root domain or non-subdomain → landing page
-  if (host === LOCAL_DOMAIN || !host.endsWith(suffix)) {
-    sendHtml(clientRes, 200,
-      `<h1>⚡ FlyHost</h1>
-       <p>Hébergez vos applications en quelques secondes.</p>
-       <p><a href="https://${LOCAL_DOMAIN}">Accéder au tableau de bord →</a></p>`);
+  if (!fs.existsSync(filePath)) {
+    clientRes.writeHead(404, { "Content-Type": "text/plain" });
+    clientRes.end("404 Not Found");
     return;
   }
 
-  const subdomain = host.slice(0, host.length - suffix.length);
+  const stat = fs.statSync(filePath);
+  const mime = getMime(filePath);
+  clientRes.writeHead(200, {
+    "Content-Type": mime,
+    "Content-Length": stat.size,
+    "Cache-Control": filePath.includes("/assets/") ? "public, max-age=31536000, immutable" : "no-cache",
+    "X-Powered-By": "FlyHost",
+  });
+  fs.createReadStream(filePath).pipe(clientRes);
+}
 
-  if (!subdomain) {
-    sendHtml(clientRes, 200,
-      `<h1>⚡ FlyHost</h1><p><a href="https://${LOCAL_DOMAIN}">Tableau de bord →</a></p>`);
-    return;
-  }
+// ─────────────────── API proxy (forward to Replit API) ───────────────────────
+function proxyToApi(clientReq, clientRes) {
+  const apiHost    = API_URL.replace(/^https?:\/\//, "");
+  const isHttps    = API_URL.startsWith("https");
+  const transport  = isHttps ? https : http;
+  const apiPort    = isHttps ? 443 : 80;
 
-  const route = routeTable.get(subdomain);
-  if (!route) {
-    sendHtml(clientRes, 404,
-      `<h1>Sous-domaine introuvable</h1>
-       <p><strong>${subdomain}.${LOCAL_DOMAIN}</strong> n'est associé à aucune application.</p>
-       <p>Déployez votre projet depuis le <a href="https://${LOCAL_DOMAIN}">tableau de bord FlyHost</a>.</p>
-       <p><code>404 Not Found</code></p>`);
-    return;
-  }
+  const options = {
+    hostname: apiHost,
+    port: apiPort,
+    path: clientReq.url,
+    method: clientReq.method,
+    headers: {
+      ...clientReq.headers,
+      host: apiHost,
+    },
+    timeout: 30_000,
+  };
 
-  // Forward the request to the target container
+  const proxyReq = transport.request(options, (proxyRes) => {
+    clientRes.writeHead(proxyRes.statusCode, proxyRes.headers);
+    proxyRes.pipe(clientRes, { end: true });
+  });
+
+  proxyReq.on("error", (err) => {
+    console.error(`[proxy] API forward error: ${err.message}`);
+    if (!clientRes.headersSent) {
+      clientRes.writeHead(502, { "Content-Type": "text/plain" });
+      clientRes.end("502 Bad Gateway (API)");
+    }
+  });
+
+  clientReq.pipe(proxyReq, { end: true });
+}
+
+// ─────────────────── Subdomain proxy ─────────────────────────────────────────
+function proxyToContainer(subdomain, route, clientReq, clientRes) {
   const options = {
     hostname: route.host,
     port: route.port,
@@ -120,9 +175,9 @@ function handleRequest(clientReq, clientRes) {
       ...clientReq.headers,
       host: `${route.host}:${route.port}`,
       "x-forwarded-for": clientReq.socket.remoteAddress || "",
-      "x-forwarded-host": rawHost,
-      "x-real-ip": clientReq.socket.remoteAddress || "",
+      "x-forwarded-host": clientReq.headers.host || "",
       "x-forwarded-proto": "https",
+      "x-real-ip": clientReq.socket.remoteAddress || "",
     },
     timeout: 30_000,
   };
@@ -138,7 +193,7 @@ function handleRequest(clientReq, clientRes) {
     if (!clientRes.headersSent) {
       sendHtml(clientRes, 504,
         `<h1>Délai dépassé</h1>
-         <p>L'application <strong>${subdomain}.${LOCAL_DOMAIN}</strong> met trop de temps à répondre.</p>
+         <p>L'app <strong>${subdomain}.${LOCAL_DOMAIN}</strong> ne répond pas.</p>
          <p><code>504 Gateway Timeout</code></p>`);
     }
   });
@@ -147,7 +202,7 @@ function handleRequest(clientReq, clientRes) {
     if (!clientRes.headersSent) {
       sendHtml(clientRes, 502,
         `<h1>Application inaccessible</h1>
-         <p><strong>${subdomain}.${LOCAL_DOMAIN}</strong> n'est pas démarrée ou ne répond pas (port ${route.port}).</p>
+         <p><strong>${subdomain}.${LOCAL_DOMAIN}</strong> n'est pas démarrée (port ${route.port}).</p>
          <p>Vérifiez que votre serveur est en ligne depuis le <a href="https://${LOCAL_DOMAIN}">tableau de bord FlyHost</a>.</p>
          <p><code>502 Bad Gateway</code></p>`);
     }
@@ -156,10 +211,63 @@ function handleRequest(clientReq, clientRes) {
   clientReq.pipe(proxyReq, { end: true });
 }
 
+// ─────────────────── Main handler ────────────────────────────────────────────
+function handleRequest(clientReq, clientRes) {
+  const rawHost = (clientReq.headers["host"] || "").toLowerCase();
+  const host    = rawHost.split(":")[0];
+  const suffix  = `.${LOCAL_DOMAIN}`;
+  const reqPath = clientReq.url || "/";
+
+  // ── Root domain: serve dashboard OR forward API calls ───────────────────
+  if (host === LOCAL_DOMAIN || !host.endsWith(suffix)) {
+    if (reqPath.startsWith("/api/")) {
+      proxyToApi(clientReq, clientRes);
+    } else {
+      serveStatic(url.parse(reqPath).pathname, clientRes);
+    }
+    return;
+  }
+
+  // ── Subdomains ────────────────────────────────────────────────────────────
+  const subdomain = host.slice(0, host.length - suffix.length);
+  if (!subdomain) { serveStatic("/", clientRes); return; }
+
+  const route = routeTable.get(subdomain);
+  if (!route) {
+    sendHtml(clientRes, 404,
+      `<h1>Sous-domaine introuvable</h1>
+       <p><strong>${subdomain}.${LOCAL_DOMAIN}</strong> n'est associé à aucune application.</p>
+       <p>Déployez votre projet depuis le <a href="https://${LOCAL_DOMAIN}">tableau de bord FlyHost</a>.</p>
+       <p><code>404 Not Found</code></p>`);
+    return;
+  }
+
+  proxyToContainer(subdomain, route, clientReq, clientRes);
+}
+
 // ─────────────────── WebSocket passthrough ───────────────────────────────────
 function handleUpgrade(req, socket, head) {
-  const host = (req.headers["host"] || "").split(":")[0].toLowerCase();
-  const suffix = `.${LOCAL_DOMAIN}`;
+  const host    = (req.headers["host"] || "").split(":")[0].toLowerCase();
+  const suffix  = `.${LOCAL_DOMAIN}`;
+  const reqPath = req.url || "/";
+
+  // API WebSocket → forward to Replit
+  if ((host === LOCAL_DOMAIN || !host.endsWith(suffix)) && reqPath.startsWith("/api/")) {
+    const apiHost = API_URL.replace(/^https?:\/\//, "");
+    const upstream = net.connect(443, apiHost, () => {
+      upstream.write(`${req.method} ${req.url} HTTP/1.1\r\n`);
+      for (const [k, v] of Object.entries(req.headers)) {
+        upstream.write(`${k}: ${v}\r\n`);
+      }
+      upstream.write("\r\n");
+      if (head?.length) upstream.write(head);
+      socket.pipe(upstream).pipe(socket);
+    });
+    upstream.on("error", () => socket.destroy());
+    socket.on("error", () => upstream.destroy());
+    return;
+  }
+
   if (!host.endsWith(suffix)) { socket.destroy(); return; }
   const subdomain = host.slice(0, host.length - suffix.length);
   const route = routeTable.get(subdomain);
@@ -171,7 +279,7 @@ function handleUpgrade(req, socket, head) {
       upstream.write(`${k}: ${v}\r\n`);
     }
     upstream.write("\r\n");
-    if (head && head.length > 0) upstream.write(head);
+    if (head?.length) upstream.write(head);
     socket.pipe(upstream).pipe(socket);
   });
   upstream.on("error", () => socket.destroy());
@@ -180,23 +288,22 @@ function handleUpgrade(req, socket, head) {
 
 // ─────────────────── Boot ────────────────────────────────────────────────────
 (async () => {
-  console.log(`[proxy] FlyHost Reverse Proxy starting...`);
-  console.log(`[proxy] Domain: *.${LOCAL_DOMAIN}`);
-  console.log(`[proxy] API URL: ${API_URL || "(none)"}`);
-  console.log(`[proxy] Listening on port: ${PROXY_PORT}`);
+  console.log(`[FlyHost] Starting complete proxy...`);
+  console.log(`[FlyHost] Domain  : *.${LOCAL_DOMAIN}`);
+  console.log(`[FlyHost] API URL : ${API_URL}`);
+  console.log(`[FlyHost] Static  : ${STATIC_DIR} (exists: ${fs.existsSync(STATIC_DIR)})`);
+  console.log(`[FlyHost] Port    : ${PROXY_PORT}`);
 
   await refreshTable();
   setInterval(refreshTable, REFRESH_MS);
 
   const server = http.createServer(handleRequest);
   server.on("upgrade", handleUpgrade);
-
   server.listen(PROXY_PORT, "0.0.0.0", () => {
-    console.log(`[proxy] ✅ Ready — routing ${routeTable.size} subdomains on port ${PROXY_PORT}`);
+    console.log(`[FlyHost] ✅ Ready — ${routeTable.size} subdomains — port ${PROXY_PORT}`);
   });
-
   server.on("error", (err) => {
-    console.error(`[proxy] Server error: ${err.message}`);
+    console.error(`[FlyHost] Server error: ${err.message}`);
     process.exit(1);
   });
 })();
