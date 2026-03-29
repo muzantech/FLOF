@@ -15,7 +15,7 @@ import path from "path";
 import os from "os";
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { uploadZipToPterodactyl, sendPowerAction, writeFileContents, purgeServerFiles } from "../pterodactyl";
+import { uploadZipToPterodactyl, sendPowerAction, writeFileContents, purgeServerFiles, updateStartupVariable, getServerStats } from "../pterodactyl";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -225,10 +225,18 @@ async function runDeploy(
     const allFiles = getAllFiles(srcDir);
 
     // Detect tech
-    const tech = detectTech(allFiles.map(f => path.relative(srcDir, f)));
+    const relFiles = allFiles.map(f => path.relative(srcDir, f));
+    const tech = detectTech(relFiles);
     await logDeploy(deploymentId, "info", `Technologie détectée : ${tech}`);
 
-    // Parse flyhost.json if present
+    // Smart project analysis (detects entry point, framework, env vars)
+    const analysis = analyzeProject(srcDir, tech, relFiles);
+    await logDeploy(deploymentId, "info", `Analyse du projet (confiance: ${analysis.confidence}) :`);
+    for (const fix of analysis.fixes) {
+      await logDeploy(deploymentId, "info", `  → ${fix}`);
+    }
+
+    // Parse flyhost.json if present (overrides analysis)
     const flyhostPath = path.join(srcDir, "flyhost.json");
     let flyhostConfig: Record<string, string> = {};
     if (fs.existsSync(flyhostPath)) {
@@ -316,13 +324,24 @@ async function runDeploy(
     }
     await logDeploy(deploymentId, "info", `Fichiers déployés sur le serveur`);
 
-    // Write startup info (sanitized)
-    const startCmd = opts.startCommand || flyhostConfig.start || getDefaultStart(tech);
+    // Apply Pterodactyl environment variables from analysis (before start)
+    await logDeploy(deploymentId, "info", `Configuration des variables de démarrage...`);
+    for (const [key, value] of Object.entries(analysis.pteroEnvUpdates)) {
+      try {
+        await updateStartupVariable(identifier, key, value);
+        await logDeploy(deploymentId, "info", `  ⚙️  ${key} = ${value}`);
+      } catch {
+        await logDeploy(deploymentId, "warn", `  Variable ${key} non reconnue par cet egg — ignorée`);
+      }
+    }
+
+    // Determine final start command (flyhost.json / opts override analysis)
+    const startCmd = opts.startCommand || flyhostConfig.start || analysis.startCommand || getDefaultStart(tech);
     if (startCmd) {
       await writeFileContents(identifier, "/.flyhost-start", startCmd);
     }
 
-    // Start server
+    // ── First attempt to start ──────────────────────────────────────────
     await logDeploy(deploymentId, "info", `Démarrage du serveur...`);
     try {
       await sendPowerAction(identifier, "start");
@@ -330,7 +349,73 @@ async function runDeploy(
       await sleep(2000);
       try { await sendPowerAction(identifier, "start"); } catch { /* ignore */ }
     }
-    await logDeploy(deploymentId, "info", `Serveur démarré avec succès`);
+
+    // ── Crash detection: wait 18s and check state ───────────────────────
+    await logDeploy(deploymentId, "info", `Vérification du démarrage (18s)...`);
+    const isAlive = await checkServerAlive(identifier, 18000);
+
+    if (!isAlive) {
+      await logDeploy(deploymentId, "warn", `⚠️  Le serveur s'est arrêté immédiatement — tentative de correction automatique...`);
+
+      // Build fallback: try alternative entry points for Node/Python
+      let retried = false;
+      if (tech === "nodejs") {
+        // Fallback candidates not already tried
+        const tried = analysis.pteroEnvUpdates["MAIN_FILE"] || "index.js";
+        const FALLBACK_MAIN = ["index.js", "app.js", "server.js", "main.js", "src/index.js"]
+          .filter(c => c !== tried && fs.existsSync(path.join(srcDir, c)));
+        if (FALLBACK_MAIN.length > 0) {
+          const alt = FALLBACK_MAIN[0];
+          await logDeploy(deploymentId, "info", `Correction : MAIN_FILE → ${alt}`);
+          try { await updateStartupVariable(identifier, "MAIN_FILE", alt); } catch {}
+          await sleep(1000);
+          try { await sendPowerAction(identifier, "start"); } catch {}
+          const alive2 = await checkServerAlive(identifier, 15000);
+          if (alive2) {
+            await logDeploy(deploymentId, "success", `Serveur démarré après correction automatique (MAIN_FILE=${alt})`);
+            retried = true;
+          } else {
+            await logDeploy(deploymentId, "warn", `Entrée alternative ${alt} n'a pas fonctionné non plus`);
+          }
+        }
+      } else if (tech === "python") {
+        const tried = analysis.pteroEnvUpdates["PY_FILE"] || "main.py";
+        const FALLBACK_PY = ["main.py", "app.py", "run.py", "server.py", "bot.py"]
+          .filter(c => c !== tried && fs.existsSync(path.join(srcDir, c)));
+        if (FALLBACK_PY.length > 0) {
+          const alt = FALLBACK_PY[0];
+          await logDeploy(deploymentId, "info", `Correction : PY_FILE → ${alt}`);
+          try { await updateStartupVariable(identifier, "PY_FILE", alt); } catch {}
+          await sleep(1000);
+          try { await sendPowerAction(identifier, "start"); } catch {}
+          const alive2 = await checkServerAlive(identifier, 15000);
+          if (alive2) {
+            await logDeploy(deploymentId, "success", `Serveur démarré après correction automatique (PY_FILE=${alt})`);
+            retried = true;
+          } else {
+            await logDeploy(deploymentId, "warn", `Entrée alternative ${alt} n'a pas fonctionné non plus`);
+          }
+        }
+      }
+
+      if (!retried) {
+        // Log actionable suggestions
+        await logDeploy(deploymentId, "warn", `Suggestions de correction :`);
+        if (tech === "nodejs") {
+          await logDeploy(deploymentId, "warn", `  • Ajoutez un fichier flyhost.json avec { "start": "node votre-fichier.js" }`);
+          await logDeploy(deploymentId, "warn", `  • Vérifiez que votre point d'entrée (${analysis.pteroEnvUpdates["MAIN_FILE"] || "index.js"}) existe et démarre sans erreur`);
+        } else if (tech === "python") {
+          await logDeploy(deploymentId, "warn", `  • Ajoutez un fichier flyhost.json avec { "start": "python votre-script.py" }`);
+          await logDeploy(deploymentId, "warn", `  • Vérifiez que requirements.txt liste toutes vos dépendances`);
+        } else {
+          await logDeploy(deploymentId, "warn", `  • Consultez la console du serveur pour voir le message d'erreur`);
+        }
+        // Still mark as deployed (server may need manual start with correct config)
+        await logDeploy(deploymentId, "info", `Fichiers déployés — vérifiez la console du serveur pour diagnostiquer`);
+      }
+    } else {
+      await logDeploy(deploymentId, "success", `Serveur opérationnel ✓`);
+    }
 
     const duration = Math.round((Date.now() - start) / 1000);
     await logDeploy(deploymentId, "success", `Déploiement terminé en ${duration}s !`);
@@ -371,6 +456,274 @@ function getDefaultStart(tech: string): string {
     static: "npx serve . -p ${SERVER_PORT:-3000}",
   };
   return map[tech] || "";
+}
+
+// ————————————————————————————————————————————
+//  Smart project analysis & auto-fix
+// ————————————————————————————————————————————
+export interface ProjectAnalysis {
+  startCommand: string;
+  /** Pterodactyl egg env vars to update before launch */
+  pteroEnvUpdates: Record<string, string>;
+  /** Human-readable list of what was auto-detected / fixed */
+  fixes: string[];
+  confidence: "high" | "medium" | "low";
+}
+
+function analyzeNodeProject(srcDir: string): ProjectAnalysis {
+  const fixes: string[] = [];
+  const pteroEnvUpdates: Record<string, string> = {};
+
+  let pkg: Record<string, any> = {};
+  try { pkg = JSON.parse(fs.readFileSync(path.join(srcDir, "package.json"), "utf8")); } catch {}
+
+  // 1 — explicit main field
+  let mainFile = "";
+  let confidence: "high" | "medium" | "low" = "medium";
+
+  if (pkg.main) {
+    mainFile = pkg.main;
+    fixes.push(`"main" dans package.json → ${mainFile}`);
+    confidence = "high";
+  }
+
+  // 2 — scripts.start
+  if (!mainFile && pkg.scripts?.start) {
+    const s: string = pkg.scripts.start;
+    const m = s.match(/(?:node|ts-node|tsx|bun)\s+(?:--[^\s]+\s+)*([^\s]+\.(?:js|ts|mjs|cjs))/);
+    if (m) {
+      mainFile = m[1];
+      fixes.push(`scripts.start: "${s}" → entrée: ${mainFile}`);
+      confidence = "high";
+    }
+  }
+
+  // 3 — scan common filenames
+  if (!mainFile) {
+    const CANDIDATES = [
+      "index.js", "app.js", "server.js", "main.js",
+      "src/index.js", "src/app.js", "src/server.js",
+      "index.ts", "app.ts", "server.ts", "main.ts",
+      "src/index.ts", "src/app.ts",
+    ];
+    for (const c of CANDIDATES) {
+      if (fs.existsSync(path.join(srcDir, c))) {
+        mainFile = c;
+        fixes.push(`Point d'entrée auto-détecté : ${c}`);
+        confidence = c.startsWith("src/") ? "medium" : "high";
+        break;
+      }
+    }
+  }
+
+  if (!mainFile) {
+    mainFile = "index.js";
+    confidence = "low";
+    fixes.push(`Aucun point d'entrée trouvé — défaut: index.js`);
+  }
+
+  pteroEnvUpdates["MAIN_FILE"] = mainFile;
+  pteroEnvUpdates["USER_UPLOAD"] = "1";
+
+  // TypeScript ?
+  const isTs = mainFile.endsWith(".ts");
+  if (isTs) fixes.push(`TypeScript détecté → ts-node sera utilisé`);
+
+  // package.json → npm install auto
+  if (fs.existsSync(path.join(srcDir, "package.json")))
+    fixes.push(`package.json présent → npm install exécuté automatiquement`);
+
+  return {
+    startCommand: isTs ? `ts-node ${mainFile}` : `node ${mainFile}`,
+    pteroEnvUpdates,
+    fixes,
+    confidence,
+  };
+}
+
+function analyzePythonProject(srcDir: string): ProjectAnalysis {
+  const fixes: string[] = [];
+  const pteroEnvUpdates: Record<string, string> = {};
+
+  let requirements = "";
+  try { requirements = fs.readFileSync(path.join(srcDir, "requirements.txt"), "utf8").toLowerCase(); } catch {}
+
+  const isFlask    = requirements.includes("flask");
+  const isDjango   = requirements.includes("django");
+  const isFastAPI  = requirements.includes("fastapi");
+  const isUvicorn  = requirements.includes("uvicorn");
+  const isGunicorn = requirements.includes("gunicorn");
+
+  // Find entry file
+  const PY_CANDIDATES = ["main.py", "app.py", "run.py", "server.py", "bot.py", "index.py", "manage.py"];
+  let entryFile = PY_CANDIDATES.find(c => fs.existsSync(path.join(srcDir, c))) || "";
+
+  // Django
+  if (isDjango && fs.existsSync(path.join(srcDir, "manage.py"))) {
+    fixes.push(`Django détecté → manage.py runserver`);
+    pteroEnvUpdates["PY_FILE"] = "manage.py";
+    pteroEnvUpdates["REQUIREMENTS_FILE"] = "requirements.txt";
+    return {
+      startCommand: "python manage.py runserver 0.0.0.0:${SERVER_PORT:-3000}",
+      pteroEnvUpdates, fixes, confidence: "high",
+    };
+  }
+
+  // FastAPI / uvicorn
+  if (isFastAPI || isUvicorn) {
+    const module = entryFile ? path.basename(entryFile, ".py") : "main";
+    let appVar = "app";
+    if (entryFile) {
+      try {
+        const src = fs.readFileSync(path.join(srcDir, entryFile), "utf8");
+        const m = src.match(/^(\w+)\s*=\s*FastAPI\(/m);
+        if (m) appVar = m[1];
+      } catch {}
+    }
+    fixes.push(`FastAPI + Uvicorn → uvicorn ${module}:${appVar} --host 0.0.0.0`);
+    pteroEnvUpdates["PY_FILE"] = entryFile || "main.py";
+    pteroEnvUpdates["REQUIREMENTS_FILE"] = "requirements.txt";
+    return {
+      startCommand: `uvicorn ${module}:${appVar} --host 0.0.0.0 --port \${SERVER_PORT:-3000}`,
+      pteroEnvUpdates, fixes, confidence: "high",
+    };
+  }
+
+  // Flask
+  if (isFlask) {
+    const module = entryFile ? path.basename(entryFile, ".py") : "app";
+    fixes.push(`Flask détecté → ${isGunicorn ? "gunicorn" : "python"} ${entryFile || "app.py"}`);
+    pteroEnvUpdates["PY_FILE"] = entryFile || "app.py";
+    pteroEnvUpdates["REQUIREMENTS_FILE"] = "requirements.txt";
+    return {
+      startCommand: isGunicorn
+        ? `gunicorn ${module}:app --bind 0.0.0.0:\${SERVER_PORT:-3000}`
+        : `python ${entryFile || "app.py"}`,
+      pteroEnvUpdates, fixes, confidence: "high",
+    };
+  }
+
+  // Generic
+  if (!entryFile) {
+    entryFile = "main.py";
+    fixes.push(`Aucun point d'entrée trouvé — défaut: main.py`);
+  } else {
+    fixes.push(`Point d'entrée auto-détecté : ${entryFile}`);
+  }
+  pteroEnvUpdates["PY_FILE"] = entryFile;
+  pteroEnvUpdates["REQUIREMENTS_FILE"] = "requirements.txt";
+
+  return {
+    startCommand: `python ${entryFile}`,
+    pteroEnvUpdates, fixes, confidence: entryFile === "main.py" ? "low" : "high",
+  };
+}
+
+function analyzePhpProject(srcDir: string): ProjectAnalysis {
+  const fixes: string[] = [];
+  const pteroEnvUpdates: Record<string, string> = {};
+
+  let docRoot = ".";
+  let confidence: "high" | "medium" | "low" = "medium";
+
+  if (fs.existsSync(path.join(srcDir, "public", "index.php"))) {
+    docRoot = "public";
+    fixes.push(`Document root: public/ (Laravel / Symfony)`);
+    confidence = "high";
+  } else if (fs.existsSync(path.join(srcDir, "www", "index.php"))) {
+    docRoot = "www";
+    fixes.push(`Document root: www/`);
+    confidence = "high";
+  } else if (fs.existsSync(path.join(srcDir, "index.php"))) {
+    docRoot = ".";
+    fixes.push(`Document root: racine du projet`);
+    confidence = "high";
+  } else {
+    fixes.push(`Aucun index.php trouvé — défaut: racine`);
+    confidence = "low";
+  }
+
+  if (fs.existsSync(path.join(srcDir, "composer.json")))
+    fixes.push(`composer.json présent → composer install exécuté automatiquement`);
+
+  pteroEnvUpdates["DOCUMENT_ROOT"] = docRoot;
+
+  return {
+    startCommand: `php -S 0.0.0.0:\${SERVER_PORT:-3000} -t /home/container/${docRoot}`,
+    pteroEnvUpdates, fixes, confidence,
+  };
+}
+
+function analyzeJavaProject(srcDir: string, files: string[]): ProjectAnalysis {
+  const fixes: string[] = [];
+  const pteroEnvUpdates: Record<string, string> = {};
+
+  const jars = files.filter(f => f.toLowerCase().endsWith(".jar") && !f.includes("node_modules"));
+  let jarFile = "app.jar";
+  let confidence: "high" | "medium" | "low" = "low";
+
+  if (jars.length === 1) {
+    jarFile = path.basename(jars[0]);
+    fixes.push(`JAR auto-détecté : ${jarFile}`);
+    confidence = "high";
+  } else if (jars.length > 1) {
+    const main = jars.find(j => !/(sources|javadoc|test)/.test(path.basename(j)));
+    if (main) {
+      jarFile = path.basename(main);
+      fixes.push(`JAR principal parmi ${jars.length} archives: ${jarFile}`);
+      confidence = "high";
+    }
+  } else {
+    fixes.push(`Aucun JAR trouvé — défaut: app.jar`);
+  }
+
+  pteroEnvUpdates["JARFILE"] = jarFile;
+
+  return {
+    startCommand: `java -jar ${jarFile}`,
+    pteroEnvUpdates, fixes, confidence,
+  };
+}
+
+export function analyzeProject(srcDir: string, tech: string, files: string[]): ProjectAnalysis {
+  switch (tech) {
+    case "nodejs": return analyzeNodeProject(srcDir);
+    case "python": return analyzePythonProject(srcDir);
+    case "php":    return analyzePhpProject(srcDir);
+    case "java":   return analyzeJavaProject(srcDir, files);
+    default: return { startCommand: getDefaultStart(tech), pteroEnvUpdates: {}, fixes: [], confidence: "low" };
+  }
+}
+
+async function applyAnalysis(
+  deploymentId: number,
+  identifier: string,
+  analysis: ProjectAnalysis
+): Promise<void> {
+  if (analysis.fixes.length === 0) return;
+  await logDeploy(deploymentId, "info", `Analyse du projet :`);
+  for (const fix of analysis.fixes) {
+    await logDeploy(deploymentId, "info", `  → ${fix}`);
+  }
+  for (const [key, value] of Object.entries(analysis.pteroEnvUpdates)) {
+    try {
+      await updateStartupVariable(identifier, key, value);
+      await logDeploy(deploymentId, "info", `⚙️  ${key} = ${value}`);
+    } catch {
+      await logDeploy(deploymentId, "warn", `Impossible de configurer ${key} (variable non reconnue par cet egg)`);
+    }
+  }
+}
+
+async function checkServerAlive(identifier: string, waitMs = 18000): Promise<boolean> {
+  await sleep(waitMs);
+  try {
+    const res = await getServerStats(identifier);
+    const state: string = res?.attributes?.current_state || "";
+    return state === "running";
+  } catch {
+    return false;
+  }
 }
 
 // ————————————————————————————————————————————
