@@ -5,6 +5,7 @@ import { eq, sql } from "drizzle-orm";
 import {
   EGG_CONFIGS,
   getOrCreatePteroUser,
+  getPteroUserByEmail,
   createPteroServer,
   suspendPteroServer,
   unsuspendPteroServer,
@@ -83,7 +84,7 @@ router.get("/servers/:identifier/quick-stats", requireAuth, async (req: AuthRequ
   }
 });
 
-// GET /api/servers — list all servers (admin) or filtered by user ptero ID
+// GET /api/servers — list servers (admin: all, user: own servers)
 router.get("/servers", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   try {
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
@@ -92,18 +93,40 @@ router.get("/servers", requireAuth, async (req: AuthRequest, res): Promise<void>
     const isAdmin = user.role === "admin" || user.role === "superadmin";
 
     if (isAdmin) {
-      // Admin sees all servers
-      const data = await listPteroServers();
-      const servers = data.data?.map((s: any) => formatServer(s)) || [];
-      res.json({ servers, total: data.meta?.pagination?.total || servers.length });
+      // Admin sees all servers across all pages
+      let allServers: any[] = [];
+      let page = 1;
+      while (true) {
+        const data = await listPteroServers(page);
+        const pageData = data.data || [];
+        allServers = allServers.concat(pageData);
+        if (page >= (data.meta?.pagination?.total_pages || 1)) break;
+        page++;
+      }
+      res.json({ servers: allServers.map(formatServer), total: allServers.length });
     } else {
-      // User sees only their own servers (matched by email)
-      const data = await listPteroServers();
-      const allServers = data.data || [];
-      // Filter by user's pteroUserId stored in description or by checking ptero user email
-      // For now return all — in production filter by pteroUserId
-      const servers = allServers.map((s: any) => formatServer(s));
-      res.json({ servers });
+      // Find user's Pterodactyl user (by email)
+      const pteroUser = await getPteroUserByEmail(user.email);
+      if (!pteroUser) {
+        // User has no Pterodactyl account yet → no servers
+        return res.json({ servers: [] }) as any;
+      }
+      const pteroUserId: number = pteroUser.attributes.id;
+
+      // Fetch all server pages and filter by owner
+      let allServers: any[] = [];
+      let page = 1;
+      while (true) {
+        const data = await listPteroServers(page);
+        const pageData = data.data || [];
+        allServers = allServers.concat(pageData);
+        if (page >= (data.meta?.pagination?.total_pages || 1)) break;
+        page++;
+      }
+      const userServers = allServers
+        .filter((s: any) => s.attributes.user === pteroUserId)
+        .map(formatServer);
+      res.json({ servers: userServers });
     }
   } catch (err: any) {
     console.error("List servers error:", err);

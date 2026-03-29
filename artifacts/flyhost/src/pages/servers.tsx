@@ -31,12 +31,10 @@ import {
   Clock,
   Loader2,
   ExternalLink,
-  ChevronRight,
   Info,
-  Settings,
+  Search,
 } from "lucide-react";
 
-// ── Types ──────────────────────────────────────────────────────────
 interface Plan {
   id: string;
   label: string;
@@ -57,16 +55,188 @@ interface PteroServer {
   createdAt: string;
 }
 
-// ── Category icons & labels ────────────────────────────────────────
-const CATEGORY_META: Record<string, { icon: string; label: string; color: string }> = {
-  minecraft: { icon: "⛏️", label: "Minecraft",    color: "text-emerald-400" },
-  gaming:    { icon: "🎮", label: "Jeux",         color: "text-purple-400"  },
-  web:       { icon: "🌐", label: "Web / Dev",    color: "text-blue-400"    },
-  voice:     { icon: "🎙️", label: "Vocal",        color: "text-pink-400"    },
-  other:     { icon: "📦", label: "Autre",        color: "text-zinc-400"    },
+// ── Tech-specific icons & colors per plan type ─────────────────────
+const PLAN_META: Record<string, {
+  icon: React.ReactNode;
+  color: string;
+  borderColor: string;
+  bg: string;
+  label: string;
+  desc: string;
+  category: string;
+}> = {
+  "nodejs": {
+    icon: <NodeJsIcon />,
+    color: "text-[#68a063]",
+    borderColor: "rgba(104,160,99,0.4)",
+    bg: "rgba(104,160,99,0.1)",
+    label: "Node.js",
+    desc: "Apps JS/TS, Discord bots, APIs",
+    category: "web",
+  },
+  "python": {
+    icon: <PythonIcon />,
+    color: "text-[#ffd845]",
+    borderColor: "rgba(55,118,171,0.4)",
+    bg: "rgba(55,118,171,0.1)",
+    label: "Python",
+    desc: "Scripts, Flask, Django, bots",
+    category: "web",
+  },
+  "php": {
+    icon: <PhpIcon />,
+    color: "text-[#9b59d0]",
+    borderColor: "rgba(155,89,208,0.4)",
+    bg: "rgba(155,89,208,0.1)",
+    label: "PHP",
+    desc: "Sites web, CMS, APIs PHP",
+    category: "web",
+  },
+  "java": {
+    icon: <JavaIcon />,
+    color: "text-[#f89820]",
+    borderColor: "rgba(248,152,32,0.4)",
+    bg: "rgba(248,152,32,0.1)",
+    label: "Java",
+    desc: "Apps JVM génériques",
+    category: "web",
+  },
+  "vanilla-mc": {
+    icon: <McIcon char="V" color="#4e9a43" />,
+    color: "text-emerald-400",
+    borderColor: "rgba(74,154,67,0.4)",
+    bg: "rgba(74,154,67,0.1)",
+    label: "Minecraft Vanilla",
+    desc: "Serveur officiel Mojang",
+    category: "minecraft",
+  },
+  "paper-mc": {
+    icon: <McIcon char="P" color="#77b255" />,
+    color: "text-green-400",
+    borderColor: "rgba(119,178,85,0.4)",
+    bg: "rgba(119,178,85,0.1)",
+    label: "Paper MC",
+    desc: "Haute perf, plugins Bukkit/Spigot",
+    category: "minecraft",
+  },
+  "forge-mc": {
+    icon: <McIcon char="F" color="#e17d1b" />,
+    color: "text-orange-400",
+    borderColor: "rgba(225,125,27,0.4)",
+    bg: "rgba(225,125,27,0.1)",
+    label: "Minecraft Forge",
+    desc: "Mods Forge & modpacks",
+    category: "minecraft",
+  },
+  "csgo": {
+    icon: <GameIcon emoji="🎯" />,
+    color: "text-yellow-400",
+    borderColor: "rgba(245,166,35,0.4)",
+    bg: "rgba(245,166,35,0.1)",
+    label: "CS:GO",
+    desc: "Counter-Strike: Global Offensive",
+    category: "gaming",
+  },
+  "gmod": {
+    icon: <GameIcon emoji="🔧" />,
+    color: "text-cyan-400",
+    borderColor: "rgba(79,152,168,0.4)",
+    bg: "rgba(79,152,168,0.1)",
+    label: "Garry's Mod",
+    desc: "Sandbox, DarkRP, TTT…",
+    category: "gaming",
+  },
+  "rust": {
+    icon: <GameIcon emoji="🦀" />,
+    color: "text-red-400",
+    borderColor: "rgba(206,66,43,0.4)",
+    bg: "rgba(206,66,43,0.1)",
+    label: "Rust",
+    desc: "Serveur de survie Rust",
+    category: "gaming",
+  },
+  "teamspeak": {
+    icon: <TsIcon />,
+    color: "text-blue-400",
+    borderColor: "rgba(31,117,254,0.4)",
+    bg: "rgba(31,117,254,0.1)",
+    label: "TeamSpeak 3",
+    desc: "Serveur vocal communautaire",
+    category: "voice",
+  },
 };
 
-// ── Status helpers ─────────────────────────────────────────────────
+// ── Inline SVG / icon components ──────────────────────────────────
+function NodeJsIcon() {
+  return (
+    <svg viewBox="0 0 32 32" className="w-8 h-8" fill="none">
+      <polygon points="16,2 28,9 28,23 16,30 4,23 4,9" fill="#68a063" opacity="0.2" />
+      <polygon points="16,2 28,9 28,23 16,30 4,23 4,9" fill="none" stroke="#68a063" strokeWidth="1.5" />
+      <text x="16" y="21" textAnchor="middle" fontSize="10" fontWeight="bold" fill="#68a063">N</text>
+    </svg>
+  );
+}
+function PythonIcon() {
+  return (
+    <svg viewBox="0 0 32 32" className="w-8 h-8" fill="none">
+      <rect x="4" y="4" width="24" height="24" rx="6" fill="#3776ab" opacity="0.2" />
+      <rect x="4" y="4" width="24" height="24" rx="6" stroke="#3776ab" strokeWidth="1.5" />
+      <text x="16" y="22" textAnchor="middle" fontSize="13" fontWeight="bold" fill="#ffd845">🐍</text>
+    </svg>
+  );
+}
+function PhpIcon() {
+  return (
+    <svg viewBox="0 0 32 32" className="w-8 h-8" fill="none">
+      <ellipse cx="16" cy="16" rx="13" ry="9" fill="#9b59d0" opacity="0.2" />
+      <ellipse cx="16" cy="16" rx="13" ry="9" stroke="#9b59d0" strokeWidth="1.5" />
+      <text x="16" y="20.5" textAnchor="middle" fontSize="9" fontWeight="bold" fill="#9b59d0">PHP</text>
+    </svg>
+  );
+}
+function JavaIcon() {
+  return (
+    <svg viewBox="0 0 32 32" className="w-8 h-8" fill="none">
+      <circle cx="16" cy="16" r="12" fill="#f89820" opacity="0.15" />
+      <circle cx="16" cy="16" r="12" stroke="#f89820" strokeWidth="1.5" />
+      <text x="16" y="21" textAnchor="middle" fontSize="10" fontWeight="bold" fill="#f89820">☕</text>
+    </svg>
+  );
+}
+function McIcon({ char, color }: { char: string; color: string }) {
+  return (
+    <svg viewBox="0 0 32 32" className="w-8 h-8" fill="none">
+      <rect x="4" y="4" width="24" height="24" rx="4" fill={color} opacity="0.2" />
+      <rect x="4" y="4" width="24" height="24" rx="4" stroke={color} strokeWidth="1.5" />
+      <text x="16" y="22" textAnchor="middle" fontSize="13" fontWeight="bold" fill={color}>{char}</text>
+    </svg>
+  );
+}
+function GameIcon({ emoji }: { emoji: string }) {
+  return (
+    <div className="w-8 h-8 flex items-center justify-center text-xl">{emoji}</div>
+  );
+}
+function TsIcon() {
+  return (
+    <svg viewBox="0 0 32 32" className="w-8 h-8" fill="none">
+      <path d="M4 8 Q16 4 28 8 L28 18 Q16 28 4 18 Z" fill="#1f75fe" opacity="0.2" />
+      <path d="M4 8 Q16 4 28 8 L28 18 Q16 28 4 18 Z" stroke="#1f75fe" strokeWidth="1.5" />
+      <text x="16" y="19" textAnchor="middle" fontSize="8" fontWeight="bold" fill="#1f75fe">TS3</text>
+    </svg>
+  );
+}
+
+// ── Category filters ───────────────────────────────────────────────
+const CATEGORIES = [
+  { id: "all",       label: "Tous",        emoji: "✦" },
+  { id: "web",       label: "Web / Dev",   emoji: "🌐" },
+  { id: "minecraft", label: "Minecraft",   emoji: "⛏️" },
+  { id: "gaming",    label: "Jeux",        emoji: "🎮" },
+  { id: "voice",     label: "Vocal",       emoji: "🎙️" },
+];
+
+// ── Status badge ───────────────────────────────────────────────────
 function ServerStatus({ status, suspended }: { status: string | null; suspended: boolean }) {
   if (suspended)
     return <Badge className="bg-red-500/10 text-red-400 border-red-500/20">Suspendu</Badge>;
@@ -79,55 +249,74 @@ function fmt(mb: number) {
   return mb >= 1024 ? `${(mb / 1024).toFixed(0)} Go` : `${mb} Mo`;
 }
 
-// ── Plan card ─────────────────────────────────────────────────────
-function PlanCard({
-  plan,
-  selected,
-  onSelect,
-}: {
-  plan: Plan;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  const meta = CATEGORY_META[plan.category] || CATEGORY_META.other;
+// Detect tech from server name for the server row icon
+function getServerTypeFromName(name: string): string | null {
+  const low = name.toLowerCase();
+  if (low.includes("paper")) return "paper-mc";
+  if (low.includes("forge")) return "forge-mc";
+  if (low.includes("vanilla") || low.includes("minecraft") || low.includes("-mc")) return "vanilla-mc";
+  if (low.includes("node") || low.includes("nodejs")) return "nodejs";
+  if (low.includes("python") || low.includes("py")) return "python";
+  if (low.includes("php")) return "php";
+  if (low.includes("java")) return "java";
+  if (low.includes("csgo") || low.includes("cs:go")) return "csgo";
+  if (low.includes("gmod") || low.includes("garry")) return "gmod";
+  if (low.includes("rust")) return "rust";
+  if (low.includes("teamspeak") || low.includes("ts3")) return "teamspeak";
+  return null;
+}
+
+// ── Plan Card ─────────────────────────────────────────────────────
+function PlanCard({ plan, selected, onSelect }: { plan: Plan; selected: boolean; onSelect: () => void }) {
+  const meta = PLAN_META[plan.id];
+  if (!meta) return null;
   return (
     <button
       onClick={onSelect}
-      className={`w-full text-left p-4 rounded-xl border transition-all duration-200 ${
+      className={`w-full text-left p-3 rounded-xl border transition-all duration-200 relative overflow-hidden group ${
         selected
-          ? "border-yellow-400/60 bg-yellow-400/8 shadow-[0_0_15px_rgba(250,204,21,0.08)]"
+          ? "shadow-lg"
           : "border-zinc-800 bg-zinc-900/50 hover:border-zinc-700"
       }`}
+      style={selected ? {
+        borderColor: meta.borderColor,
+        background: meta.bg,
+        boxShadow: `0 0 20px ${meta.borderColor}`,
+      } : {}}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-xl">{meta.icon}</span>
-          <div>
-            <p className="font-semibold text-white text-sm leading-tight">{plan.label}</p>
-            <p className={`text-xs ${meta.color}`}>{meta.label}</p>
+      <div className="flex items-center gap-3">
+        <div
+          className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+          style={{ background: meta.bg, border: `1px solid ${meta.borderColor}` }}
+        >
+          {meta.icon}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-1">
+            <p className="font-semibold text-white text-sm leading-tight truncate">{meta.label}</p>
+            <div className="flex items-center gap-0.5 text-yellow-400 text-xs font-bold flex-shrink-0">
+              <Coins className="w-3 h-3" />
+              {plan.coins}
+            </div>
+          </div>
+          <p className="text-xs text-zinc-500 mt-0.5 truncate">{meta.desc}</p>
+          <div className="mt-1.5 flex items-center gap-2 text-xs text-zinc-600">
+            <span className="flex items-center gap-0.5"><MemoryStick className="w-2.5 h-2.5" />{fmt(plan.limits.memory)}</span>
+            <span className="flex items-center gap-0.5"><HardDrive className="w-2.5 h-2.5" />{fmt(plan.limits.disk)}</span>
+            <span className="flex items-center gap-0.5"><Cpu className="w-2.5 h-2.5" />{plan.limits.cpu}%</span>
           </div>
         </div>
-        <div className="flex items-center gap-1 text-yellow-400 text-sm font-bold flex-shrink-0">
-          <Coins className="w-3.5 h-3.5" />
-          {plan.coins}
-          <span className="text-yellow-400/50 font-normal text-xs">/mois</span>
-        </div>
-      </div>
-      <div className="mt-3 flex items-center gap-3 text-xs text-zinc-600">
-        <span className="flex items-center gap-1"><MemoryStick className="w-3 h-3" />{fmt(plan.limits.memory)}</span>
-        <span className="flex items-center gap-1"><HardDrive className="w-3 h-3" />{fmt(plan.limits.disk)}</span>
-        <span className="flex items-center gap-1"><Cpu className="w-3 h-3" />{plan.limits.cpu}%</span>
       </div>
       {selected && (
-        <div className="mt-2 flex items-center gap-1 text-xs text-yellow-400">
-          <CheckCircle2 className="w-3 h-3" /> Sélectionné
+        <div className="absolute top-2 right-2">
+          <CheckCircle2 className="w-3.5 h-3.5 text-yellow-400" />
         </div>
       )}
     </button>
   );
 }
 
-// ── Server row ────────────────────────────────────────────────────
+// ── Server Row ────────────────────────────────────────────────────
 function ServerRow({
   server,
   onAction,
@@ -137,78 +326,57 @@ function ServerRow({
   onAction: (id: string, action: "start" | "stop" | "restart") => void;
   onDelete: (id: number) => void;
 }) {
+  const type = getServerTypeFromName(server.name);
+  const meta = type ? PLAN_META[type] : null;
+
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 hover:border-zinc-700 transition-all">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center flex-shrink-0">
-            <Server className="w-5 h-5 text-zinc-400" />
+          <div
+            className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+            style={meta ? { background: meta.bg, border: `1px solid ${meta.borderColor}` } : {
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.08)",
+            }}
+          >
+            {meta ? meta.icon : <Server className="w-5 h-5 text-zinc-500" />}
           </div>
           <div>
             <div className="flex items-center gap-2 mb-0.5">
-              <p className="font-semibold text-white text-sm">{server.name}</p>
+              <p className="font-semibold text-white text-sm">{server.name.replace(/\s*\[FH-\d+\]$/, "")}</p>
               <ServerStatus status={server.status} suspended={server.suspended} />
             </div>
             <div className="flex items-center gap-3 text-xs text-zinc-600">
               {server.allocation && (
                 <span className="font-mono">{server.allocation.ip}:{server.allocation.port}</span>
               )}
-              <span className="flex items-center gap-1">
-                <MemoryStick className="w-3 h-3" />{fmt(server.limits.memory)}
-              </span>
-              <span className="flex items-center gap-1">
-                <HardDrive className="w-3 h-3" />{fmt(server.limits.disk)}
-              </span>
+              <span className="flex items-center gap-1"><MemoryStick className="w-3 h-3" />{fmt(server.limits.memory)}</span>
+              <span className="flex items-center gap-1"><HardDrive className="w-3 h-3" />{fmt(server.limits.disk)}</span>
             </div>
           </div>
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Manage button — main CTA */}
           <Link href={`/servers/${server.identifier}`}>
             <Button size="sm" className="h-8 gap-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 hover:border-yellow-400/30 hover:text-yellow-400 font-medium">
               <Terminal className="w-3.5 h-3.5" /> Gérer
             </Button>
           </Link>
-
           {!server.suspended && (
             <>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 w-8 p-0 text-emerald-400 hover:bg-emerald-500/10"
-                title="Démarrer"
-                onClick={() => onAction(server.identifier, "start")}
-              >
+              <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-emerald-400 hover:bg-emerald-500/10" title="Démarrer" onClick={() => onAction(server.identifier, "start")}>
                 <Play className="w-3.5 h-3.5" />
               </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 w-8 p-0 text-yellow-400 hover:bg-yellow-400/10"
-                title="Redémarrer"
-                onClick={() => onAction(server.identifier, "restart")}
-              >
+              <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-yellow-400 hover:bg-yellow-400/10" title="Redémarrer" onClick={() => onAction(server.identifier, "restart")}>
                 <RotateCcw className="w-3.5 h-3.5" />
               </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 w-8 p-0 text-orange-400 hover:bg-orange-500/10"
-                title="Arrêter"
-                onClick={() => onAction(server.identifier, "stop")}
-              >
+              <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-orange-400 hover:bg-orange-500/10" title="Arrêter" onClick={() => onAction(server.identifier, "stop")}>
                 <Square className="w-3.5 h-3.5" />
               </Button>
             </>
           )}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 w-8 p-0 text-red-400 hover:bg-red-500/10"
-            title="Supprimer"
-            onClick={() => onDelete(server.id)}
-          >
+          <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-400 hover:bg-red-500/10" title="Supprimer" onClick={() => onDelete(server.id)}>
             <Trash2 className="w-3.5 h-3.5" />
           </Button>
         </div>
@@ -227,17 +395,15 @@ export default function ServersPage() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [createStep, setCreateStep] = useState<string>("");
 
-  // Create form
   const [serverName, setServerName] = useState("");
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
-
-  // Category filter
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [searchFilter, setSearchFilter] = useState<string>("");
 
   const coins = (user as any)?.coins ?? 0;
 
-  // Load servers & plans
   async function load() {
     setLoading(true);
     try {
@@ -248,13 +414,16 @@ export default function ServersPage() {
       if (sRes.ok) {
         const d = await sRes.json();
         setServers(d.servers || []);
+      } else {
+        const d = await sRes.json().catch(() => ({}));
+        toast({ variant: "destructive", title: "Erreur chargement", description: d.error || "Impossible de charger les serveurs" });
       }
       if (pRes.ok) {
         const d = await pRes.json();
         setPlans(d.plans || []);
       }
     } catch (e: any) {
-      toast({ variant: "destructive", title: "Erreur", description: e.message });
+      toast({ variant: "destructive", title: "Erreur réseau", description: e.message });
     }
     setLoading(false);
   }
@@ -276,16 +445,32 @@ export default function ServersPage() {
       return;
     }
 
+    // Validate server name
+    const cleaned = serverName.trim().replace(/[^a-zA-Z0-9\-_ ]/g, "");
+    if (!cleaned) {
+      toast({ variant: "destructive", title: "Nom invalide", description: "Utilisez uniquement des lettres, chiffres, tirets et espaces." });
+      return;
+    }
+
     setCreating(true);
+    setCreateStep("Vérification des allocations…");
     try {
+      setCreateStep("Création du compte Pterodactyl…");
+      await new Promise(r => setTimeout(r, 300));
+      setCreateStep("Déploiement du serveur sur le nœud…");
+
       const res = await fetch("/api/servers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: serverName, gameType: selectedPlan }),
+        body: JSON.stringify({ name: cleaned, gameType: selectedPlan }),
       });
       const data = await res.json();
+
       if (!res.ok) {
-        toast({ variant: "destructive", title: "Erreur", description: data.error });
+        let errMsg = data.error || "Erreur inconnue";
+        if (errMsg.includes("allocation")) errMsg = "Aucun port disponible sur le nœud. Contactez l'administrateur.";
+        if (errMsg.includes("egg")) errMsg = "Type de serveur non configuré sur le panel. Vérifiez les eggs installés.";
+        toast({ variant: "destructive", title: "Création échouée", description: errMsg });
       } else {
         toast({
           title: "Serveur créé ! 🎉",
@@ -294,6 +479,7 @@ export default function ServersPage() {
         setShowCreate(false);
         setServerName("");
         setSelectedPlan(null);
+        setCategoryFilter("all");
         await load();
         await refreshUser();
       }
@@ -301,6 +487,7 @@ export default function ServersPage() {
       toast({ variant: "destructive", title: "Erreur réseau", description: e.message });
     }
     setCreating(false);
+    setCreateStep("");
   }
 
   async function handlePowerAction(identifier: string, action: "start" | "stop" | "restart") {
@@ -338,9 +525,15 @@ export default function ServersPage() {
     }
   }
 
-  const categories = ["all", ...Array.from(new Set(plans.map(p => p.category)))];
-  const filteredPlans = categoryFilter === "all" ? plans : plans.filter(p => p.category === categoryFilter);
   const selectedPlanInfo = plans.find(p => p.id === selectedPlan);
+
+  const filteredPlans = plans.filter(p => {
+    const meta = PLAN_META[p.id];
+    if (!meta) return false;
+    if (categoryFilter !== "all" && meta.category !== categoryFilter) return false;
+    if (searchFilter && !meta.label.toLowerCase().includes(searchFilter.toLowerCase()) && !meta.desc.toLowerCase().includes(searchFilter.toLowerCase())) return false;
+    return true;
+  });
 
   return (
     <AppLayout>
@@ -352,14 +545,9 @@ export default function ServersPage() {
               <Server className="w-6 h-6 text-yellow-400" />
               Mes Serveurs
             </h1>
-            <p className="text-zinc-500 text-sm mt-1">
-              Gérez vos serveurs hébergés sur Pterodactyl
-            </p>
+            <p className="text-zinc-500 text-sm mt-1">Gérez vos serveurs hébergés sur Pterodactyl</p>
           </div>
-          <Button
-            onClick={() => setShowCreate(true)}
-            className="bg-yellow-400 text-black hover:bg-yellow-300 font-semibold gap-2"
-          >
+          <Button onClick={() => setShowCreate(true)} className="bg-yellow-400 text-black hover:bg-yellow-300 font-semibold gap-2">
             <Plus className="w-4 h-4" /> Nouveau serveur
           </Button>
         </div>
@@ -386,14 +574,11 @@ export default function ServersPage() {
         <div className="flex items-center gap-3 p-4 rounded-xl border border-yellow-400/15 bg-yellow-400/3">
           <Info className="w-4 h-4 text-yellow-400 flex-shrink-0" />
           <p className="text-sm text-zinc-400 flex-1">
-            Panel Pterodactyl connecté à <span className="text-yellow-400 font-mono text-xs">panel.lionelmelo.qzz.io</span>
+            Panel Pterodactyl connecté à{" "}
+            <span className="text-yellow-400 font-mono text-xs">panel.lionelmelo.qzz.io</span>
           </p>
-          <a
-            href="https://panel.lionelmelo.qzz.io"
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-1 text-xs text-yellow-400 hover:text-yellow-300 font-medium"
-          >
+          <a href="https://panel.lionelmelo.qzz.io" target="_blank" rel="noreferrer"
+            className="flex items-center gap-1 text-xs text-yellow-400 hover:text-yellow-300 font-medium">
             Ouvrir le panel <ExternalLink className="w-3 h-3" />
           </a>
         </div>
@@ -413,12 +598,7 @@ export default function ServersPage() {
           ) : servers.length > 0 ? (
             <div className="space-y-3">
               {servers.map(s => (
-                <ServerRow
-                  key={s.id}
-                  server={s}
-                  onAction={handlePowerAction}
-                  onDelete={handleDelete}
-                />
+                <ServerRow key={s.id} server={s} onAction={handlePowerAction} onDelete={handleDelete} />
               ))}
             </div>
           ) : (
@@ -427,13 +607,8 @@ export default function ServersPage() {
                 <Server className="w-7 h-7 text-zinc-600" />
               </div>
               <h3 className="text-lg font-semibold text-white mb-2">Aucun serveur</h3>
-              <p className="text-zinc-500 text-sm mb-6">
-                Créez votre premier serveur en quelques clics.
-              </p>
-              <Button
-                onClick={() => setShowCreate(true)}
-                className="bg-yellow-400 text-black hover:bg-yellow-300 font-semibold"
-              >
+              <p className="text-zinc-500 text-sm mb-6">Créez votre premier serveur en quelques clics.</p>
+              <Button onClick={() => setShowCreate(true)} className="bg-yellow-400 text-black hover:bg-yellow-300 font-semibold">
                 <Plus className="w-4 h-4 mr-2" /> Créer un serveur
               </Button>
             </div>
@@ -442,15 +617,14 @@ export default function ServersPage() {
       </div>
 
       {/* ── Create Server Dialog ── */}
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="bg-zinc-950 border-zinc-800 max-w-2xl max-h-[90vh] overflow-y-auto">
+      <Dialog open={showCreate} onOpenChange={v => { if (!creating) setShowCreate(v); }}>
+        <DialogContent className="bg-zinc-950 border-zinc-800 max-w-2xl max-h-[92vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-white flex items-center gap-2">
               <Zap className="w-5 h-5 text-yellow-400" /> Nouveau serveur
             </DialogTitle>
             <DialogDescription className="text-zinc-500">
-              Choisissez un type de serveur et donnez-lui un nom.
-              Le serveur sera créé instantanément sur Pterodactyl.
+              Sélectionnez un type, donnez un nom — le serveur est créé instantanément sur Pterodactyl.
             </DialogDescription>
           </DialogHeader>
 
@@ -460,9 +634,10 @@ export default function ServersPage() {
             <span className="text-sm text-yellow-400 font-semibold">{coins} coins disponibles</span>
             {selectedPlanInfo && (
               <span className="text-zinc-500 text-xs ml-auto">
-                Ce serveur coûte <strong className="text-yellow-400">{selectedPlanInfo.coins}</strong> coins
-                → reste <strong className={coins - selectedPlanInfo.coins >= 0 ? "text-emerald-400" : "text-red-400"}>
-                  {coins - selectedPlanInfo.coins}
+                Coût : <strong className="text-yellow-400">{selectedPlanInfo.coins}</strong> coins
+                {" → "}
+                <strong className={coins - selectedPlanInfo.coins >= 0 ? "text-emerald-400" : "text-red-400"}>
+                  {coins - selectedPlanInfo.coins} restants
                 </strong>
               </span>
             )}
@@ -476,51 +651,92 @@ export default function ServersPage() {
               value={serverName}
               onChange={e => setServerName(e.target.value)}
               className="bg-zinc-900 border-zinc-700 focus:border-yellow-400/50"
+              disabled={creating}
             />
+            <p className="text-xs text-zinc-600">Lettres, chiffres, tirets et espaces uniquement.</p>
           </div>
 
-          {/* Category tabs */}
+          {/* Category filter + search */}
           <div>
             <label className="text-sm font-medium text-zinc-300 mb-3 block">Type de serveur</label>
-            <div className="flex gap-2 flex-wrap mb-4">
-              {categories.map(cat => {
-                const meta = cat === "all" ? { icon: "🌟", label: "Tous" } : CATEGORY_META[cat];
-                return (
+            <div className="flex flex-col gap-3 mb-4">
+              <div className="flex gap-2 flex-wrap">
+                {CATEGORIES.map(cat => (
                   <button
-                    key={cat}
-                    onClick={() => setCategoryFilter(cat)}
+                    key={cat.id}
+                    onClick={() => setCategoryFilter(cat.id)}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${
-                      categoryFilter === cat
+                      categoryFilter === cat.id
                         ? "bg-yellow-400/10 border-yellow-400/30 text-yellow-400"
                         : "border-zinc-800 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
                     }`}
                   >
-                    <span>{meta?.icon}</span>
-                    {meta?.label || cat}
+                    <span>{cat.emoji}</span>{cat.label}
                   </button>
-                );
-              })}
+                ))}
+              </div>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-600" />
+                <Input
+                  placeholder="Rechercher…"
+                  value={searchFilter}
+                  onChange={e => setSearchFilter(e.target.value)}
+                  className="pl-9 h-8 text-xs bg-zinc-900 border-zinc-800 focus:border-zinc-700"
+                />
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[280px] overflow-y-auto pr-1">
-              {filteredPlans.map(plan => (
-                <PlanCard
-                  key={plan.id}
-                  plan={plan}
-                  selected={selectedPlan === plan.id}
-                  onSelect={() => setSelectedPlan(plan.id)}
-                />
-              ))}
-            </div>
+            {filteredPlans.length === 0 ? (
+              <div className="py-8 text-center text-zinc-600 text-sm border border-dashed border-zinc-800 rounded-xl">
+                Aucun type trouvé
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[300px] overflow-y-auto pr-1">
+                {filteredPlans.map(plan => (
+                  <PlanCard
+                    key={plan.id}
+                    plan={plan}
+                    selected={selectedPlan === plan.id}
+                    onSelect={() => setSelectedPlan(plan.id)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
+
+          {/* Selected plan summary */}
+          {selectedPlanInfo && PLAN_META[selectedPlanInfo.id] && (
+            <div
+              className="p-3 rounded-xl border flex items-center gap-3"
+              style={{
+                borderColor: PLAN_META[selectedPlanInfo.id].borderColor,
+                background: PLAN_META[selectedPlanInfo.id].bg,
+              }}
+            >
+              <div className="flex-shrink-0">{PLAN_META[selectedPlanInfo.id].icon}</div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-white">{PLAN_META[selectedPlanInfo.id].label}</p>
+                <div className="flex items-center gap-3 text-xs text-zinc-500 mt-0.5">
+                  <span><MemoryStick className="w-3 h-3 inline mr-0.5" />{fmt(selectedPlanInfo.limits.memory)}</span>
+                  <span><HardDrive className="w-3 h-3 inline mr-0.5" />{fmt(selectedPlanInfo.limits.disk)}</span>
+                  <span><Cpu className="w-3 h-3 inline mr-0.5" />{selectedPlanInfo.limits.cpu}%</span>
+                </div>
+              </div>
+              <CheckCircle2 className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+            </div>
+          )}
+
+          {/* Creating progress */}
+          {creating && createStep && (
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-zinc-900 border border-zinc-800">
+              <Loader2 className="w-4 h-4 animate-spin text-yellow-400 flex-shrink-0" />
+              <p className="text-sm text-zinc-400">{createStep}</p>
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex items-center justify-between pt-2 border-t border-zinc-800">
-            <Button
-              variant="ghost"
-              onClick={() => setShowCreate(false)}
-              className="text-zinc-400 hover:text-white"
-            >
+            <Button variant="ghost" onClick={() => setShowCreate(false)} className="text-zinc-400 hover:text-white" disabled={creating}>
               Annuler
             </Button>
             <Button
