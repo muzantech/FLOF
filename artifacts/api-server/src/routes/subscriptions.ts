@@ -33,7 +33,8 @@ router.post("/subscriptions/subscribe", requireAuth, async (req: AuthRequest, re
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
 
-  if (user.coins < planConfig.price) {
+  const isAdmin = user.role === 'admin';
+  if (!isAdmin && user.coins < planConfig.price) {
     res.status(400).json({ error: `Insufficient coins. You have ${user.coins}, need ${planConfig.price}.` });
     return;
   }
@@ -55,9 +56,11 @@ router.post("/subscriptions/subscribe", requireAuth, async (req: AuthRequest, re
     nextBillingAt: nextBilling,
   }).returning();
 
-  // Deduct coins
-  const newCoins = user.coins - planConfig.price;
-  await db.update(usersTable).set({ coins: newCoins }).where(eq(usersTable.id, req.userId!));
+  // Deduct coins (skip for admins)
+  const newCoins = isAdmin ? user.coins : user.coins - planConfig.price;
+  if (!isAdmin) {
+    await db.update(usersTable).set({ coins: newCoins }).where(eq(usersTable.id, req.userId!));
+  }
 
   // Record transaction
   await db.insert(coinTransactionsTable).values({

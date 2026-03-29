@@ -119,15 +119,18 @@ router.post("/marketplace/:id/buy", requireAuth, async (req: AuthRequest, res): 
 
     const [buyer] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
     if (!buyer) { res.status(404).json({ error: "Acheteur non trouvé" }); return; }
-    if (buyer.coins < item.priceCoins) {
+    const isBuyerAdmin = buyer.role === 'admin';
+    if (!isBuyerAdmin && buyer.coins < item.priceCoins) {
       res.status(400).json({ error: `Coins insuffisants. Requis : ${item.priceCoins}, Disponible : ${buyer.coins}` }); return;
     }
 
     const commission = Math.floor(item.priceCoins * COMMISSION_RATE);
     const sellerRevenue = item.priceCoins - commission;
 
-    // Deduct from buyer
-    await db.update(usersTable).set({ coins: sql`coins - ${item.priceCoins}` }).where(eq(usersTable.id, req.userId!));
+    // Deduct from buyer (skip for admins)
+    if (!isBuyerAdmin) {
+      await db.update(usersTable).set({ coins: sql`coins - ${item.priceCoins}` }).where(eq(usersTable.id, req.userId!));
+    }
     await db.insert(coinTransactionsTable).values({
       userId: req.userId!, type: "debit", category: "purchase",
       amount: item.priceCoins, description: `Achat marketplace : "${item.title}"`, reference: `mp-${id}`,

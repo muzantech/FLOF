@@ -155,7 +155,8 @@ router.post("/servers", requireAuth, async (req: AuthRequest, res): Promise<void
     const price = SERVER_PRICES[gameType];
     if (!price) { res.status(400).json({ error: "Type de serveur invalide" }); return; }
 
-    if (user.coins < price.coins) {
+    const isAdmin = user.role === 'admin';
+    if (!isAdmin && user.coins < price.coins) {
       res.status(402).json({
         error: `Coins insuffisants. Nécessaire: ${price.coins}, Disponible: ${user.coins}`,
         required: price.coins,
@@ -178,10 +179,12 @@ router.post("/servers", requireAuth, async (req: AuthRequest, res): Promise<void
       cpu,
     });
 
-    // Deduct coins
-    await db.update(usersTable)
-      .set({ coins: sql`coins - ${price.coins}` })
-      .where(eq(usersTable.id, req.userId!));
+    // Deduct coins (skip for admins)
+    if (!isAdmin) {
+      await db.update(usersTable)
+        .set({ coins: sql`coins - ${price.coins}` })
+        .where(eq(usersTable.id, req.userId!));
+    }
 
     await db.insert(coinTransactionsTable).values({
       userId: req.userId!,
