@@ -15,7 +15,7 @@ import path from "path";
 import os from "os";
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { uploadZipToPterodactyl, sendPowerAction, writeFileContents } from "../pterodactyl";
+import { uploadZipToPterodactyl, sendPowerAction, writeFileContents, purgeServerFiles } from "../pterodactyl";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -289,6 +289,15 @@ async function runDeploy(
       } catch { /* already stopped — continue */ }
     }
 
+    // Purge ALL existing server files so new deploy is a clean slate
+    await logDeploy(deploymentId, "info", `Suppression des anciens fichiers du serveur...`);
+    const purgeResult = await purgeServerFiles(identifier);
+    if (purgeResult.deleted > 0) {
+      await logDeploy(deploymentId, "info", `${purgeResult.deleted} fichier(s) supprimé(s)`);
+    } else {
+      await logDeploy(deploymentId, "info", `Répertoire vide — aucun fichier à supprimer`);
+    }
+
     // Upload to Pterodactyl (panel proxy primary, Wings URL fallback)
     await logDeploy(deploymentId, "info", `Envoi des fichiers vers Pterodactyl...`);
     try {
@@ -310,7 +319,7 @@ async function runDeploy(
     // Write startup info (sanitized)
     const startCmd = opts.startCommand || flyhostConfig.start || getDefaultStart(tech);
     if (startCmd) {
-      await writeFileContents(identifier, "/home/container/.flyhost-start", startCmd);
+      await writeFileContents(identifier, "/.flyhost-start", startCmd);
     }
 
     // Start server
@@ -515,6 +524,9 @@ router.post("/servers/:identifier/rollback/:deploymentId", requireAuth, async (r
 
   try {
     const snapshotZip = fs.readFileSync(dep.snapshotPath);
+    // Kill server, purge existing files, then restore snapshot
+    try { await sendPowerAction(identifier, "kill"); await sleep(3000); } catch { /* already stopped */ }
+    await purgeServerFiles(identifier);
     await uploadZipToPterodactyl(identifier, snapshotZip);
     try { await sendPowerAction(identifier, "restart"); } catch { await sendPowerAction(identifier, "start"); }
 

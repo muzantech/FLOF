@@ -419,6 +419,33 @@ export async function deleteServerFiles(identifier: string, root: string, files:
   return pteroClientRequest(`/servers/${identifier}/files/delete`, "POST", { root, files });
 }
 
+/**
+ * Delete ALL files in the server container root (/home/container).
+ * Called before a fresh deploy so old files don't pollute the new release.
+ * Non-fatal: if listing or deletion fails, deploy continues anyway.
+ */
+export async function purgeServerFiles(identifier: string): Promise<{ deleted: number }> {
+  try {
+    const data = await listServerFiles(identifier, "/");
+    const entries: string[] = (data?.data || [])
+      .map((f: any) => f.attributes?.name as string)
+      .filter(Boolean);
+
+    if (entries.length === 0) return { deleted: 0 };
+
+    // Delete in batches of 20 (panel API limit per request)
+    const BATCH = 20;
+    for (let i = 0; i < entries.length; i += BATCH) {
+      const batch = entries.slice(i, i + BATCH);
+      await deleteServerFiles(identifier, "/", batch);
+    }
+    return { deleted: entries.length };
+  } catch (err: any) {
+    console.warn("[purge] Could not purge server files:", err.message);
+    return { deleted: 0 };
+  }
+}
+
 export async function compressServerFiles(identifier: string, root: string, files: string[]) {
   return pteroClientRequest(`/servers/${identifier}/files/compress`, "POST", { root, files });
 }
@@ -437,7 +464,10 @@ export async function getUploadUrl(identifier: string): Promise<string> {
  * Strategy A avoids direct Wings connection issues (most common failure cause).
  */
 export async function uploadZipToPterodactyl(identifier: string, zipBuffer: Buffer, filename = "flyhost-deploy.zip"): Promise<void> {
-  const remotePath = `/home/container/${filename}`;
+  // Wings file API root "/" = server container working directory (/home/container inside Docker).
+  // Files must be placed at root "/" so the server process (CWD=/home/container) can find them.
+  // Using "/home/container/..." would create a nested "/home/container/home/container/..." path — wrong!
+  const remotePath = `/${filename}`;
 
   // ── Strategy A: Panel-proxied binary write ──────────────────────
   try {
@@ -476,7 +506,8 @@ export async function uploadZipToPterodactyl(identifier: string, zipBuffer: Buff
   let decompressed = false;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      await decompressServerFile(identifier, "/home/container", filename);
+      // Extract at Wings root "/" so files land in the server's working directory
+      await decompressServerFile(identifier, "/", filename);
       decompressed = true;
       break;
     } catch (decompErr: any) {
@@ -492,7 +523,7 @@ export async function uploadZipToPterodactyl(identifier: string, zipBuffer: Buff
   // ── Cleanup ZIP ──────────────────────────────────────────────────
   if (decompressed) {
     try {
-      await deleteServerFiles(identifier, "/home/container", [filename]);
+      await deleteServerFiles(identifier, "/", [filename]);
     } catch { /* non-fatal */ }
   }
 }
