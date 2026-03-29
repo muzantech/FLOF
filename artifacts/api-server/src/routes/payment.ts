@@ -11,6 +11,25 @@ const router: IRouter = Router();
 
 const MONEYFUSION_URL = process.env.MONEYFUSION_PAY_URL || "https://www.pay.moneyfusion.net/FLYHOST/8a106a9cd82c8779/pay/";
 const APP_URL = process.env.APP_URL || "https://flihost.site";
+// Relay: appel MoneyFusion depuis le VPS (IP 173.212.226.118 — whitelistée dans MoneyFusion)
+const MF_RELAY_URL = process.env.MF_RELAY_URL || "https://flihost.site/api/payment/mf-relay";
+const MF_RELAY_SECRET = process.env.MF_RELAY_SECRET || "flyhost-mf-relay-2026-secret";
+
+async function callMoneyFusion(payload: object): Promise<{ ok: boolean; data: any }> {
+  try {
+    const res = await fetch(MF_RELAY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ secret: MF_RELAY_SECRET, payload }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const json = await res.json();
+    return { ok: res.ok, data: json.data || json };
+  } catch (err: any) {
+    console.error("[payment] MoneyFusion relay error:", err.message);
+    return { ok: false, data: { error: err.message } };
+  }
+}
 
 const COINS_PACKAGES = [
   { id: "coins_100",  coins: 100,  priceFcfa: 500,   label: "100 Coins" },
@@ -65,33 +84,24 @@ router.post("/payment/initiate", requireAuth, async (req: AuthRequest, res): Pro
       metadata: { packageId, coins: pkg.coins + bonusCoins, bonusCoins, originalAmount: pkg.priceFcfa, promoCode },
     });
 
-    // Call MoneyFusion API
-    const mfRes = await fetch(MONEYFUSION_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        totalPrice: finalAmount,
-        devise: "XOF",
-        infoOrdre: `FlyHost — ${pkg.label}`,
-        numeroOrdre: paymentId,
-        urlRedirect: `${APP_URL}/payment/callback?id=${paymentId}`,
-        urlIpn: `${APP_URL}/api/payment/webhook`,
-        nomclient: user.name || user.username,
-        personal_Info: [{ label: "Email", value: user.email }],
-      }),
+    // Call MoneyFusion via VPS relay (whitelisted IP)
+    const { ok: mfOk, data: mfData } = await callMoneyFusion({
+      totalPrice: finalAmount,
+      devise: "XOF",
+      infoOrdre: `FlyHost — ${pkg.label}`,
+      numeroOrdre: paymentId,
+      urlRedirect: `${APP_URL}/payment/callback?id=${paymentId}`,
+      urlIpn: `${APP_URL}/api/payment/webhook`,
+      nomclient: user.name || user.username,
+      personal_Info: [{ label: "Email", value: user.email }],
     });
 
-    let mfData: any = {};
-    try { mfData = await mfRes.json(); } catch {}
-
-    if (!mfRes.ok || !mfData.url) {
-      // If MoneyFusion fails (sandbox/test), return a test URL
+    if (!mfOk || !mfData?.url) {
       console.warn("[payment] MoneyFusion returned:", JSON.stringify(mfData));
       res.json({ paymentUrl: `${APP_URL}/payment/test?id=${paymentId}`, paymentId, testMode: true });
       return;
     }
 
-    // Save MoneyFusion token
     if (mfData.token) {
       await db.update(paymentTransactionsTable).set({ tokenPay: mfData.token }).where(eq(paymentTransactionsTable.paymentId, paymentId));
     }
@@ -257,25 +267,19 @@ router.post("/payment/subscription", requireAuth, async (req: AuthRequest, res):
       metadata: { plan, label: planConfig.label, durationDays: planConfig.durationDays, bonusCoins: planConfig.bonusCoins },
     });
 
-    const mfRes = await fetch(MONEYFUSION_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        totalPrice: planConfig.priceFcfa,
-        devise: "XOF",
-        infoOrdre: `FlyHost — Abonnement ${planConfig.label} (${planConfig.durationDays} jours)`,
-        numeroOrdre: paymentId,
-        urlRedirect: `${APP_URL}/payment/callback?id=${paymentId}`,
-        urlIpn: `${APP_URL}/api/payment/webhook`,
-        nomclient: user.name || user.username,
-        personal_Info: [{ label: "Email", value: user.email }],
-      }),
+    // Call MoneyFusion via VPS relay (whitelisted IP)
+    const { ok: mfOk, data: mfData } = await callMoneyFusion({
+      totalPrice: planConfig.priceFcfa,
+      devise: "XOF",
+      infoOrdre: `FlyHost — Abonnement ${planConfig.label} (${planConfig.durationDays} jours)`,
+      numeroOrdre: paymentId,
+      urlRedirect: `${APP_URL}/payment/callback?id=${paymentId}`,
+      urlIpn: `${APP_URL}/api/payment/webhook`,
+      nomclient: user.name || user.username,
+      personal_Info: [{ label: "Email", value: user.email }],
     });
 
-    let mfData: any = {};
-    try { mfData = await mfRes.json(); } catch {}
-
-    if (!mfRes.ok || !mfData.url) {
+    if (!mfOk || !mfData?.url) {
       console.warn("[payment/subscription] MoneyFusion returned:", JSON.stringify(mfData));
       res.json({ paymentUrl: `${APP_URL}/payment/test?id=${paymentId}`, paymentId, testMode: true });
       return;
