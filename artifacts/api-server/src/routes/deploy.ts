@@ -535,14 +535,26 @@ async function runDeploy(
           const switchResult = await switchServerEgg(serverInfo.id, requiredEggKey, analysis.pteroEnvUpdates["STARTUP"] || "");
           if (switchResult.switched) {
             await logDeploy(deploymentId, "info", `  ✅ ${switchResult.message}`);
-            await logDeploy(deploymentId, "info", `  ⏳ Attente de la réinstallation du container (max 3 min)...`);
+            await logDeploy(deploymentId, "info", `  ⏳ Attente de la réinstallation du container (max 5 min)...`);
             // Poll until installation finishes instead of fixed sleep
-            const ready = await waitForServerReady(serverInfo.id, 180_000, 5_000);
+            const ready = await waitForServerReady(serverInfo.id, 300_000, 5_000);
             if (ready) {
               await logDeploy(deploymentId, "info", `  ✅ Container réinstallé et prêt`);
             } else {
-              await logDeploy(deploymentId, "warn", `  ⚠️ Réinstallation longue ou incertaine — attente d'une sécurité supplémentaire (15s)...`);
-              await sleep(15000);
+              // Check if reinstall actually failed vs timed out
+              const serverInfo2 = await getPteroServerByIdentifier(identifier);
+              if (serverInfo2) {
+                const srvData = await getPteroServer(serverInfo2.id).catch(() => null);
+                const srvStatus = srvData?.attributes?.status || "";
+                if (srvStatus === "reinstall_failed" || srvStatus === "install_failed") {
+                  throw new Error(
+                    `La réinstallation du container a échoué (statut: ${srvStatus}). ` +
+                    `Essayez de réinstaller le serveur manuellement depuis le panel Pterodactyl.`
+                  );
+                }
+              }
+              await logDeploy(deploymentId, "warn", `  ⚠️ Réinstallation longue — attente de sécurité supplémentaire (30s)...`);
+              await sleep(30000);
             }
           } else {
             await logDeploy(deploymentId, "warn", `  ⚠️ ${switchResult.message}`);
@@ -1039,10 +1051,12 @@ function analyzePhpProject(srcDir: string): ProjectAnalysis {
   if (fs.existsSync(path.join(srcDir, "composer.json")))
     fixes.push(`composer.json présent → composer install exécuté automatiquement`);
 
+  // PHP egg uses its own startup template with {{SERVER_PORT}} and {{DOCUMENT_ROOT}}
+  // We only need to set DOCUMENT_ROOT — do NOT set STARTUP (PHP egg ignores it)
   pteroEnvUpdates["DOCUMENT_ROOT"] = docRoot;
 
   return {
-    startCommand: `php -S 0.0.0.0:\${SERVER_PORT:-3000} -t /home/container/${docRoot}`,
+    startCommand: buildPhpStartup(docRoot),
     pteroEnvUpdates, fixes, confidence,
   };
 }

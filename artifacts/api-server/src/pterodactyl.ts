@@ -491,8 +491,10 @@ export async function switchServerEgg(
 
     // Build new environment from egg defaults + current values
     const newEnv: Record<string, string> = { ...config.environment, ...currentEnv };
-    // Inject STARTUP so the egg uses our command
-    newEnv["STARTUP"] = startupCmd;
+    // Effective startup: use provided cmd, fall back to egg's own default startup
+    const effectiveStartup = startupCmd || config.startup;
+    // Inject STARTUP so the egg uses our command (if applicable)
+    if (startupCmd) newEnv["STARTUP"] = startupCmd;
 
     // PATCH startup with new egg
     const patchRes = await fetch(`${PANEL_URL}/api/application/servers/${serverId}/startup`, {
@@ -503,7 +505,7 @@ export async function switchServerEgg(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        startup: startupCmd,
+        startup: effectiveStartup,
         environment: newEnv,
         egg: config.eggId,
         image: config.dockerImage,
@@ -556,8 +558,8 @@ export async function waitForServerReady(
       const data = await pteroAppRequest(`/servers/${serverId}`);
       const status: string | null = data?.attributes?.status ?? null;
       if (status === null) return true;           // installed and ready
-      if (status === "install_failed") return false; // failed — don't wait any longer
-      // status === "installing" → keep polling
+      if (status === "install_failed" || status === "reinstall_failed") return false; // failed — stop polling
+      // status === "installing" or "reinstalling" → keep polling
     } catch {
       // Transient error — keep polling
     }
