@@ -9,31 +9,34 @@
  *  1. flihost.site  → sert les fichiers statiques du dashboard React (dossier ./public/)
  *  2. flihost.site/api/*  → forward vers l'API FlyHost (Replit)
  *  3. *.flihost.site  → forward vers le container Pterodactyl correspondant
+ *  4. POST /api/payment/mf-relay → relais MoneyFusion depuis IP VPS autorisée
  *
  * Variables d'environnement :
- *   PORT         Port d'écoute (injecté par Wings, défaut 3000)
- *   API_URL      URL de l'API FlyHost pour les routes + forward API (défaut hardcodé)
- *   LOCAL_DOMAIN Domaine à gérer (défaut: flihost.site)
- *   REFRESH_MS   Intervalle de rafraîchissement de la table de routage (défaut: 30000)
+ *   PORT             Port d'écoute (injecté par Wings, défaut 3000)
+ *   API_URL          URL de l'API FlyHost pour les routes + forward API (défaut hardcodé)
+ *   LOCAL_DOMAIN     Domaine à gérer (défaut: flihost.site)
+ *   REFRESH_MS       Intervalle de rafraîchissement de la table de routage (défaut: 30000)
+ *   MF_RELAY_SECRET  Secret partagé pour sécuriser le relais MoneyFusion
+ *   MF_PAY_URL       URL de l'API MoneyFusion
  */
 
 const http   = require("http");
 const https  = require("https");
 const net    = require("net");
+const tls    = require("tls");
 const fs     = require("fs");
 const path   = require("path");
 const url    = require("url");
 
 const PROXY_PORT   = parseInt(process.env.PORT   || "3000", 10);
-const API_URL      = (process.env.API_URL || "https://a9f3b24c-2c6e-4e8f-b135-b330026f22e3-00-3ndcmgith71am.riker.replit.dev").replace(/\/$/, "");
+const API_URL = (process.env.API_URL || "https://e45e8016-d33b-437f-b68f-eaf0f042e9f9-00-1nanj8yfver6c.spock.replit.dev").replace(/\/$/, "");
 const LOCAL_DOMAIN = process.env.LOCAL_DOMAIN || "flihost.site";
 const REFRESH_MS   = parseInt(process.env.REFRESH_MS || "30000", 10);
+const MF_RELAY_SECRET = process.env.MF_RELAY_SECRET || "flyhost-mf-relay-2026-secret";
+const MF_PAY_URL = process.env.MF_PAY_URL || "https://www.pay.moneyfusion.net/FLYHOST/8a106a9cd82c8779/pay/";
 
 /**
  * Detect the Docker host gateway IP by reading /proc/net/route.
- * Inside a Pterodactyl container, 127.0.0.1 is the container itself — NOT the host.
- * The other containers are reachable via the Docker bridge gateway (e.g. 172.18.0.1).
- * Falls back to 127.0.0.1 if running outside Docker (e.g. dev with host networking).
  */
 function detectHostGateway() {
   try {
@@ -56,16 +59,9 @@ function detectHostGateway() {
   return "127.0.0.1";
 }
 
-// HOST_IP: IP where the other Pterodactyl containers are reachable.
-// Docker-proxy binds to the VPS external IP (173.212.226.118), NOT to 127.0.0.1 or the Docker gateway.
-// UFW is configured to allow traffic from pterodactyl_nw (172.18.0.0/16) to this IP on ports 3001-3199.
-// Priority: HOST_IP env > SERVER_IP env > detected Docker gateway (fallback)
 const HOST_GATEWAY = process.env.HOST_IP || process.env.SERVER_IP || "173.212.226.118" || detectHostGateway();
 
-// Dossier des fichiers statiques du dashboard (déployé avec le proxy)
 const STATIC_DIR = path.join(__dirname, "public");
-
-// In-memory routing table: subdomain → { host, port }
 const routeTable = new Map();
 
 // ─────────────────── MIME types ──────────────────────────────────────────────
@@ -104,7 +100,7 @@ async function refreshTable() {
     for (const { subdomain, port } of (data.routes || [])) {
       if (parseInt(port, 10) === PROXY_PORT) { skipped++; continue; }
       routeTable.set(subdomain.toLowerCase(), {
-        host: HOST_GATEWAY,   // Route via Docker gateway to reach other containers on the host
+        host: HOST_GATEWAY,
         port: parseInt(port, 10),
       });
     }
@@ -132,34 +128,76 @@ a{color:#facc15}code{background:#09090b;color:#71717a;padding:.2rem .6rem;border
 }
 
 // ─────────────────── Static file server (dashboard) ──────────────────────────
-// Checks ./public/ first; if missing, falls back to the Replit API server
-// which also serves the built frontend (no VPS file push needed after rebuilds).
-const STATIC_AVAILABLE = fs.existsSync(STATIC_DIR);
-
-function serveStatic(reqPath, clientReq, clientRes) {
-  // ── 1. Try local ./public/ if it exists ──────────────────────────────────
-  if (STATIC_AVAILABLE) {
-    let filePath = path.join(STATIC_DIR, reqPath === "/" ? "index.html" : reqPath);
-    if (!filePath.startsWith(STATIC_DIR)) { clientRes.writeHead(403); clientRes.end(); return; }
-    if (!fs.existsSync(filePath) && !path.extname(reqPath)) {
-      filePath = path.join(STATIC_DIR, "index.html");
-    }
-    if (fs.existsSync(filePath)) {
-      const stat = fs.statSync(filePath);
-      const mime = getMime(filePath);
-      clientRes.writeHead(200, {
-        "Content-Type": mime,
-        "Content-Length": stat.size,
-        "Cache-Control": filePath.includes("/assets/") ? "public, max-age=31536000, immutable" : "no-cache",
-        "X-Powered-By": "FlyHost",
-      });
-      fs.createReadStream(filePath).pipe(clientRes);
-      return;
-    }
+function serveStatic(reqPath, clientRes) {
+  let filePath = path.join(STATIC_DIR, reqPath === "/" ? "index.html" : reqPath);
+  if (!filePath.startsWith(STATIC_DIR)) {
+    clientRes.writeHead(403); clientRes.end(); return;
   }
+  if (!fs.existsSync(filePath) && !path.extname(reqPath)) {
+    filePath = path.join(STATIC_DIR, "index.html");
+  }
+  if (!fs.existsSync(filePath)) {
+    clientRes.writeHead(404, { "Content-Type": "text/plain" });
+    clientRes.end("404 Not Found");
+    return;
+  }
+  const stat = fs.statSync(filePath);
+  const mime = getMime(filePath);
+  clientRes.writeHead(200, {
+    "Content-Type": mime,
+    "Content-Length": stat.size,
+    "Cache-Control": filePath.includes("/assets/") ? "public, max-age=31536000, immutable" : "no-cache",
+    "X-Powered-By": "FlyHost",
+  });
+  fs.createReadStream(filePath).pipe(clientRes);
+}
 
-  // ── 2. Fallback: forward to Replit API server which hosts the frontend ───
-  proxyToApi(clientReq, clientRes);
+// ─────────────────── MoneyFusion relay (appel depuis IP VPS autorisée) ────────
+async function handleMfRelay(clientReq, clientRes) {
+  let body = "";
+  clientReq.on("data", chunk => { body += chunk; });
+  clientReq.on("end", async () => {
+    try {
+      // CORS headers
+      clientRes.setHeader("Access-Control-Allow-Origin", "*");
+
+      const data = JSON.parse(body);
+      const { secret, payload } = data;
+
+      if (secret !== MF_RELAY_SECRET) {
+        clientRes.writeHead(403, { "Content-Type": "application/json" });
+        clientRes.end(JSON.stringify({ error: "Unauthorized relay" }));
+        return;
+      }
+
+      console.log(`[mf-relay] Calling MoneyFusion for order: ${payload?.numeroOrdre}`);
+
+      // Call MoneyFusion FROM this VPS (IP 173.212.226.118 — whitelisted)
+      const mfRes = await fetch(MF_PAY_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(15_000),
+      });
+
+      const mfText = await mfRes.text();
+      let mfData;
+      try { mfData = JSON.parse(mfText); } catch { mfData = { error: mfText }; }
+
+      console.log(`[mf-relay] MoneyFusion response (${mfRes.status}):`, JSON.stringify(mfData).substring(0, 200));
+
+      clientRes.writeHead(200, { "Content-Type": "application/json" });
+      clientRes.end(JSON.stringify({ status: mfRes.status, data: mfData }));
+    } catch (err) {
+      console.error(`[mf-relay] Error: ${err.message}`);
+      clientRes.writeHead(500, { "Content-Type": "application/json" });
+      clientRes.end(JSON.stringify({ error: err.message }));
+    }
+  });
+  clientReq.on("error", (err) => {
+    clientRes.writeHead(500, { "Content-Type": "application/json" });
+    clientRes.end(JSON.stringify({ error: err.message }));
+  });
 }
 
 // ─────────────────── API proxy (forward to Replit API) ───────────────────────
@@ -199,8 +237,6 @@ function proxyToApi(clientReq, clientRes) {
 
 // ─────────────────── Subdomain proxy ─────────────────────────────────────────
 function proxyToContainer(subdomain, route, clientReq, clientRes) {
-  // First probe TCP connectivity with a short timeout (5s) to fail fast
-  // instead of hanging until Cloudflare's timeout (which would cause a 504)
   const probe = net.createConnection({ host: route.host, port: route.port });
   probe.setTimeout(5_000);
 
@@ -219,7 +255,6 @@ function proxyToContainer(subdomain, route, clientReq, clientRes) {
   probe.on("error", fail502);
 
   probe.on("connect", () => {
-    // Connection works — destroy probe and do the real proxy request
     probe.destroy();
 
     const options = {
@@ -274,19 +309,39 @@ function handleRequest(clientReq, clientRes) {
   const suffix  = `.${LOCAL_DOMAIN}`;
   const reqPath = clientReq.url || "/";
 
-  // ── Root domain: serve dashboard OR forward API calls ───────────────────
+  // ── Root domain ───────────────────────────────────────────────────────────
   if (host === LOCAL_DOMAIN || !host.endsWith(suffix)) {
+
+    // CORS preflight
+    if (clientReq.method === "OPTIONS") {
+      clientRes.writeHead(204, {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type,Authorization",
+      });
+      clientRes.end();
+      return;
+    }
+
+    // MoneyFusion relay — handled locally on VPS (whitelisted IP)
+    if (reqPath === "/api/payment/mf-relay" && clientReq.method === "POST") {
+      handleMfRelay(clientReq, clientRes);
+      return;
+    }
+
+    // Other API calls → forward to Replit
     if (reqPath.startsWith("/api/")) {
       proxyToApi(clientReq, clientRes);
-    } else {
-      serveStatic(url.parse(reqPath).pathname, clientReq, clientRes);
+      return;
     }
+
+    serveStatic(url.parse(reqPath).pathname, clientRes);
     return;
   }
 
   // ── Subdomains ────────────────────────────────────────────────────────────
   const subdomain = host.slice(0, host.length - suffix.length);
-  if (!subdomain) { serveStatic("/", clientReq, clientRes); return; }
+  if (!subdomain) { serveStatic("/", clientRes); return; }
 
   const route = routeTable.get(subdomain);
   if (!route) {
@@ -307,10 +362,9 @@ function handleUpgrade(req, socket, head) {
   const suffix  = `.${LOCAL_DOMAIN}`;
   const reqPath = req.url || "/";
 
-  // API WebSocket → forward to Replit
   if ((host === LOCAL_DOMAIN || !host.endsWith(suffix)) && reqPath.startsWith("/api/")) {
     const apiHost = API_URL.replace(/^https?:\/\//, "");
-    const upstream = net.connect(443, apiHost, () => {
+    const upstream = tls.connect({ host: apiHost, port: 443, servername: apiHost }, () => {
       upstream.write(`${req.method} ${req.url} HTTP/1.1\r\n`);
       for (const [k, v] of Object.entries(req.headers)) {
         upstream.write(`${k}: ${v}\r\n`);
@@ -349,6 +403,7 @@ function handleUpgrade(req, socket, head) {
   console.log(`[FlyHost] API URL : ${API_URL}`);
   console.log(`[FlyHost] Static  : ${STATIC_DIR} (exists: ${fs.existsSync(STATIC_DIR)})`);
   console.log(`[FlyHost] Port    : ${PROXY_PORT}`);
+  console.log(`[FlyHost] MF URL  : ${MF_PAY_URL}`);
 
   await refreshTable();
   setInterval(refreshTable, REFRESH_MS);
