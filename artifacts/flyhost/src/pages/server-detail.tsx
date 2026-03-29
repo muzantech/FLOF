@@ -72,6 +72,27 @@ interface ConsoleLine {
 }
 
 // ── Helpers ───────────────────────────────
+/**
+ * Strip ALL ANSI/VT100 escape sequences from terminal output.
+ * Handles: colors (SGR), cursor movement, line erase, screen erase,
+ * OSC sequences (window title), and other ESC sequences.
+ */
+function stripAnsi(str: string): string {
+  return str
+    // CSI sequences: ESC [ ... (any final byte A-Z, a-z, @, ~)
+    .replace(/\x1b\[[0-9;:<=>?]*[ -/]*[@-~]/g, "")
+    // OSC sequences: ESC ] ... (terminated by BEL or ST)
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
+    // Single-char ESC sequences (ESC followed by a non-[ char)
+    .replace(/\x1b[^[\]]/g, "")
+    // Leftover bare ESC characters
+    .replace(/\x1b/g, "")
+    // C1 control chars (0x80-0x9F) — some terminals use these
+    .replace(/[\x80-\x9f]/g, "")
+    // Other non-printable control chars except \n, \r, \t
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+}
+
 function fmtSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -233,7 +254,7 @@ function ConsolePanel({
             addLine("✓ Console connectée", "system");
             ws.send(JSON.stringify({ event: "send logs", args: [null] }));
           } else if (msg.event === "console output") {
-            const clean = (msg.args[0] || "").replace(/\x1b\[[0-9;]*m/g, "");
+            const clean = stripAnsi(msg.args[0] || "");
             if (clean.trim()) addLine(clean, "output");
           } else if (msg.event === "status") {
             const state = msg.args[0] || "";
@@ -246,7 +267,8 @@ function ConsolePanel({
           } else if (msg.event === "daemon error") {
             addLine(`[Daemon] ${msg.args[0]}`, "error");
           } else if (msg.event === "install output") {
-            addLine(`[Install] ${msg.args[0]}`, "output");
+            const clean = stripAnsi(msg.args[0] || "");
+            if (clean.trim()) addLine(`[Install] ${clean}`, "output");
           }
         } catch {}
       };
@@ -360,7 +382,7 @@ function ConsolePanel({
                 "text-zinc-300"
               }`}
             >
-              {line.text.replace(/\x1b\[[0-9;]*m/g, "")}
+              {line.text}
             </div>
           ))
         )}
