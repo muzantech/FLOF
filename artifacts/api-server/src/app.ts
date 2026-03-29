@@ -43,7 +43,7 @@ if (fs.existsSync(FRONTEND_DIST)) {
     index: false,
   }));
   // SPA fallback — any non-API, non-asset route returns index.html
-  app.get("*", (_req: Request, res: Response) => {
+  app.get("/{*splat}", (_req: Request, res: Response) => {
     const indexPath = path.join(FRONTEND_DIST, "index.html");
     if (fs.existsSync(indexPath)) {
       res.sendFile(indexPath);

@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
-import { db, usersTable, coinTransactionsTable } from "@workspace/db";
+import { db, usersTable, coinTransactionsTable, subscriptionsTable } from "@workspace/db";
 import { paymentTransactionsTable, promoCodesTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
@@ -9,7 +9,7 @@ import { sendEmail, emailTemplates } from "../mailer";
 
 const router: IRouter = Router();
 
-const MONEYFUSION_URL = process.env.MONEYFUSION_PAY_URL || "https://www.pay.moneyfusion.net/FLYHOST/pay/";
+const MONEYFUSION_URL = process.env.MONEYFUSION_PAY_URL || "https://www.pay.moneyfusion.net/FLYHOST/8a106a9cd82c8779/pay/";
 const APP_URL = process.env.APP_URL || "https://flihost.site";
 
 const COINS_PACKAGES = [
@@ -135,36 +135,88 @@ router.post("/payment/webhook", async (req, res): Promise<void> => {
 
     if (success) {
       const meta = txn.metadata as any || {};
-      const coinsToAdd = meta.coins || 0;
 
-      if (txn.type === "coins" && coinsToAdd > 0) {
-        // Add coins to user
-        await db.update(usersTable)
-          .set({ coins: sql`coins + ${coinsToAdd}` })
-          .where(eq(usersTable.id, txn.userId));
+      if (txn.type === "coins") {
+        const coinsToAdd = meta.coins || 0;
+        if (coinsToAdd > 0) {
+          await db.update(usersTable)
+            .set({ coins: sql`coins + ${coinsToAdd}` })
+            .where(eq(usersTable.id, txn.userId));
 
-        // Log coin transaction
-        await db.insert(coinTransactionsTable).values({
+          await db.insert(coinTransactionsTable).values({
+            userId: txn.userId,
+            type: "credit",
+            category: "purchase",
+            amount: coinsToAdd,
+            description: `Achat ${coinsToAdd} coins — paiement #${txn.paymentId.substring(0, 8)}`,
+            reference: txn.paymentId,
+          });
+
+          await createNotification(txn.userId, "payment", "💰 Paiement reçu", `${coinsToAdd} coins ont été ajoutés à votre solde`);
+
+          const [user] = await db.select().from(usersTable).where(eq(usersTable.id, txn.userId)).limit(1);
+          if (user) {
+            await sendEmail(user.email, "✅ Paiement FlyHost confirmé", `
+              <div style="font-family:sans-serif;padding:24px;background:#09090B;color:#FAFAFA;border-radius:12px">
+                <h2 style="color:#FACC15">Paiement confirmé !</h2>
+                <p><strong>${coinsToAdd} coins</strong> ont été ajoutés à votre compte FlyHost.</p>
+                <p>Montant payé : <strong>${txn.amount} ${txn.currency}</strong></p>
+                <p>Référence : <code>${txn.paymentId}</code></p>
+              </div>
+            `);
+          }
+        }
+      }
+
+      if (txn.type === "subscription") {
+        const { plan, label, durationDays = 14, bonusCoins = 0 } = meta;
+
+        // Cancel existing active subscription
+        await db.update(subscriptionsTable)
+          .set({ isActive: false, cancelledAt: new Date() })
+          .where(eq(subscriptionsTable.userId, txn.userId));
+
+        // Calculate next billing date
+        const nextBilling = new Date();
+        nextBilling.setDate(nextBilling.getDate() + durationDays);
+
+        // Create new subscription
+        const [newSub] = await db.insert(subscriptionsTable).values({
           userId: txn.userId,
-          type: "credit",
-          category: "purchase",
-          amount: coinsToAdd,
-          description: `Achat ${coinsToAdd} coins — paiement #${txn.paymentId.substring(0, 8)}`,
-          reference: txn.paymentId,
-        });
+          planName: plan,
+          pricePerMonth: txn.amount,
+          bonusCoins,
+          isActive: true,
+          nextBillingAt: nextBilling,
+        }).returning();
 
-        // Notify user
-        await createNotification(txn.userId, "payment", "💰 Paiement reçu", `${coinsToAdd} coins ont été ajoutés à votre solde`);
+        // Add bonus coins
+        if (bonusCoins > 0) {
+          await db.update(usersTable)
+            .set({ coins: sql`coins + ${bonusCoins}` })
+            .where(eq(usersTable.id, txn.userId));
 
-        // Send email
+          await db.insert(coinTransactionsTable).values({
+            userId: txn.userId,
+            type: "credit",
+            category: "subscription_bonus",
+            amount: bonusCoins,
+            description: `Bonus ${label} — coins offerts`,
+            reference: `sub_payment_${txn.paymentId.substring(0, 8)}`,
+          });
+        }
+
+        await createNotification(txn.userId, "subscription", "🎉 Abonnement activé !", `Votre abonnement ${label} est actif pour ${durationDays} jours`);
+
         const [user] = await db.select().from(usersTable).where(eq(usersTable.id, txn.userId)).limit(1);
         if (user) {
-          await sendEmail(user.email, "✅ Paiement FlyHost confirmé", `
+          await sendEmail(user.email, `🎉 Abonnement FlyHost ${label} activé !`, `
             <div style="font-family:sans-serif;padding:24px;background:#09090B;color:#FAFAFA;border-radius:12px">
-              <h2 style="color:#FACC15">Paiement confirmé !</h2>
-              <p><strong>${coinsToAdd} coins</strong> ont été ajoutés à votre compte FlyHost.</p>
-              <p>Montant payé : <strong>${txn.amount} ${txn.currency}</strong></p>
-              <p>Référence : <code>${txn.paymentId}</code></p>
+              <h2 style="color:#FACC15">Abonnement ${label} activé !</h2>
+              <p>Votre abonnement est actif pour <strong>${durationDays} jours</strong>.</p>
+              ${bonusCoins > 0 ? `<p><strong>${bonusCoins} coins bonus</strong> ont été ajoutés à votre compte.</p>` : ""}
+              <p>Montant payé : <strong>${txn.amount} FCFA</strong></p>
+              <p>Prochain renouvellement : <strong>${nextBilling.toLocaleDateString("fr-FR")}</strong></p>
             </div>
           `);
         }
@@ -174,6 +226,68 @@ router.post("/payment/webhook", async (req, res): Promise<void> => {
     res.json({ status: "ok" });
   } catch (err: any) {
     console.error("[payment] webhook error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/payment/subscription — initiate MoneyFusion payment for a subscription plan
+router.post("/payment/subscription", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const { plan } = req.body;
+    const SUB_PLANS: Record<string, { label: string; priceFcfa: number; durationDays: number; bonusCoins: number }> = {
+      starter:  { label: "Starter",  priceFcfa: 500,  durationDays: 14, bonusCoins: 100 },
+      pro:      { label: "Pro",      priceFcfa: 1500, durationDays: 14, bonusCoins: 350 },
+      business: { label: "Business", priceFcfa: 4000, durationDays: 30, bonusCoins: 1000 },
+    };
+    const planConfig = SUB_PLANS[plan as string];
+    if (!planConfig) { res.status(400).json({ error: "Plan invalide" }); return; }
+
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+    if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+    const paymentId = randomUUID();
+
+    await db.insert(paymentTransactionsTable).values({
+      userId: req.userId!,
+      paymentId,
+      amount: planConfig.priceFcfa,
+      currency: "XOF",
+      type: "subscription",
+      status: "pending",
+      metadata: { plan, label: planConfig.label, durationDays: planConfig.durationDays, bonusCoins: planConfig.bonusCoins },
+    });
+
+    const mfRes = await fetch(MONEYFUSION_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        totalPrice: planConfig.priceFcfa,
+        devise: "XOF",
+        infoOrdre: `FlyHost — Abonnement ${planConfig.label} (${planConfig.durationDays} jours)`,
+        numeroOrdre: paymentId,
+        urlRedirect: `${APP_URL}/payment/callback?id=${paymentId}`,
+        urlIpn: `${APP_URL}/api/payment/webhook`,
+        nomclient: user.name || user.username,
+        personal_Info: [{ label: "Email", value: user.email }],
+      }),
+    });
+
+    let mfData: any = {};
+    try { mfData = await mfRes.json(); } catch {}
+
+    if (!mfRes.ok || !mfData.url) {
+      console.warn("[payment/subscription] MoneyFusion returned:", JSON.stringify(mfData));
+      res.json({ paymentUrl: `${APP_URL}/payment/test?id=${paymentId}`, paymentId, testMode: true });
+      return;
+    }
+
+    if (mfData.token) {
+      await db.update(paymentTransactionsTable).set({ tokenPay: mfData.token }).where(eq(paymentTransactionsTable.paymentId, paymentId));
+    }
+
+    res.json({ paymentUrl: mfData.url, paymentId });
+  } catch (err: any) {
+    console.error("[payment/subscription] error:", err);
     res.status(500).json({ error: err.message });
   }
 });
