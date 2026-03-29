@@ -158,4 +158,100 @@ export const emailTemplates = {
       </div>
     `,
   }),
+
+  welcomeEmail: (name: string, username: string, coins: number) => ({
+    subject: `🚀 Bienvenue sur FlyHost, ${name.split(" ")[0]} !`,
+    html: `
+      <!DOCTYPE html>
+      <html lang="fr">
+      <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+      <body style="margin:0;padding:0;background:#0a0a0b;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif">
+        <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#0a0a0b;padding:40px 16px">
+          <tr><td align="center">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:600px">
+
+              <!-- Header -->
+              <tr><td style="background:#09090B;border-radius:16px 16px 0 0;padding:32px;text-align:center;border-bottom:1px solid #1f1f1f">
+                <div style="display:inline-flex;align-items:center;gap:10px">
+                  <div style="width:36px;height:36px;background:#FACC15;border-radius:10px;display:inline-flex;align-items:center;justify-content:center">
+                    <span style="font-size:20px">▲</span>
+                  </div>
+                  <span style="font-size:24px;font-weight:800;color:#FFFFFF;letter-spacing:-0.5px">FlyHost</span>
+                </div>
+              </td></tr>
+
+              <!-- Body -->
+              <tr><td style="background:#09090B;padding:40px 32px">
+                <h1 style="color:#FFFFFF;font-size:26px;font-weight:800;margin:0 0 12px">
+                  Bienvenue, ${name.split(" ")[0]} ! 🎉
+                </h1>
+                <p style="color:#A1A1AA;font-size:15px;line-height:1.6;margin:0 0 28px">
+                  Votre compte <strong style="color:#FFFFFF">@${username}</strong> est activé. Vous pouvez maintenant déployer vos applications et créer des serveurs en quelques secondes.
+                </p>
+
+                <!-- Coins bonus banner -->
+                <div style="background:#1a1a0a;border:1px solid #3a3000;border-radius:12px;padding:20px 24px;margin:0 0 28px;text-align:center">
+                  <div style="font-size:32px;font-weight:900;color:#FACC15;letter-spacing:-1px">${coins} coins</div>
+                  <div style="color:#92883a;font-size:13px;margin-top:4px">offerts sur votre compte 🎁</div>
+                </div>
+
+                <!-- What you can do -->
+                <h3 style="color:#FFFFFF;font-size:15px;font-weight:700;margin:0 0 16px">Ce que vous pouvez faire :</h3>
+                <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom:28px">
+                  ${[
+                    ["🚀", "Déployer un serveur Node.js, Python, PHP, Minecraft", "/servers/new"],
+                    ["💰", "Recharger des coins avec Orange Money ou Wave", "/subscription"],
+                    ["🎁", "Inviter des amis et gagner +20 coins par filleul", "/referral"],
+                    ["📊", "Suivre vos projets depuis le dashboard", "/dashboard"],
+                  ].map(([icon, text, _link]) => `
+                    <tr>
+                      <td style="padding:8px 0;vertical-align:top">
+                        <span style="font-size:18px;margin-right:12px">${icon}</span>
+                        <span style="color:#D4D4D8;font-size:14px">${text}</span>
+                      </td>
+                    </tr>
+                  `).join("")}
+                </table>
+
+                <!-- CTA -->
+                <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+                  <tr><td align="center">
+                    <a href="${process.env.APP_URL || "https://flihost.site"}/dashboard"
+                       style="display:inline-block;padding:14px 36px;background:#FACC15;color:#09090B;text-decoration:none;border-radius:10px;font-weight:800;font-size:15px;letter-spacing:-0.2px">
+                      Accéder à mon dashboard →
+                    </a>
+                  </td></tr>
+                </table>
+              </td></tr>
+
+              <!-- Quick links -->
+              <tr><td style="background:#0f0f0f;padding:24px 32px;border-top:1px solid #1a1a1a">
+                <p style="color:#52525B;font-size:12px;margin:0 0 12px;text-align:center">Liens utiles</p>
+                <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+                  <tr>
+                    ${[["Documentation", "/docs"], ["Support WhatsApp", "https://wa.me/22300000000"], ["Tarifs", "/pricing"]].map(([label, href]) => `
+                      <td align="center">
+                        <a href="${href.startsWith("http") ? href : (process.env.APP_URL || "https://flihost.site") + href}"
+                           style="color:#FACC15;text-decoration:none;font-size:13px;font-weight:600">${label}</a>
+                      </td>
+                    `).join("")}
+                  </tr>
+                </table>
+              </td></tr>
+
+              <!-- Footer -->
+              <tr><td style="background:#09090B;border-radius:0 0 16px 16px;padding:24px 32px;border-top:1px solid #1a1a1a;text-align:center">
+                <p style="color:#3F3F46;font-size:12px;margin:0">
+                  © 2026 FlyHost · <a href="${process.env.APP_URL || "https://flihost.site"}" style="color:#52525B;text-decoration:none">flihost.site</a>
+                  · Hébergement cloud pour l'Afrique francophone
+                </p>
+              </td></tr>
+
+            </table>
+          </td></tr>
+        </table>
+      </body>
+      </html>
+    `,
+  }),
 };

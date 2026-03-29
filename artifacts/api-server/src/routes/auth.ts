@@ -204,6 +204,11 @@ router.post("/auth/verify-email", requireAuth, async (req: AuthRequest, res): Pr
     });
 
     const [updatedUser] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+
+    // Envoyer l'email de bienvenue
+    const welcomeTpl = emailTemplates.welcomeEmail(updatedUser.name, updatedUser.username, updatedUser.coins ?? 0);
+    sendEmail(updatedUser.email, welcomeTpl.subject, welcomeTpl.html).catch(() => {});
+
     res.json({ success: true, user: publicUser(updatedUser) });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

@@ -167,25 +167,29 @@ export default function RegisterPage() {
                   </FormItem>
                 )}
               />
-              {refCode && (
-                <FormField
-                  control={form.control}
-                  name="referralCode"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-zinc-300">Code de parrainage</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          className="bg-zinc-800/50 border-zinc-700 h-11 text-yellow-400 font-mono"
-                          readOnly
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
+              <FormField
+                control={form.control}
+                name="referralCode"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-zinc-300 flex items-center gap-2">
+                      Code de parrainage
+                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-yellow-400/15 text-yellow-400 border border-yellow-400/20">
+                        +20 coins bonus
+                      </span>
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="ex: ALEX1A2B3C"
+                        {...field}
+                        className={`bg-zinc-800/50 border-zinc-700 h-11 focus:border-yellow-400/50 transition-colors ${field.value ? "text-yellow-400 font-mono" : ""}`}
+                      />
+                    </FormControl>
+                    <p className="text-[11px] text-zinc-600">Optionnel — si un ami vous a invité, entrez son code.</p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               <Button
                 type="submit"

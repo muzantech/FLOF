@@ -1,6 +1,6 @@
 # FlyHost — Documentation Complète du Projet
 
-> **Dernière mise à jour :** Mars 2026  
+> **Dernière mise à jour :** 29 Mars 2026  
 > Ce document permet à n'importe quelle IA (ou développeur) de reprendre le développement là où il a été laissé, sans perdre de contexte.
 
 ---
@@ -25,6 +25,7 @@
 16. [État actuel & fonctionnalités implémentées](#16-état-actuel--fonctionnalités-implémentées)
 17. [Fonctionnalités à implémenter (TODO)](#17-fonctionnalités-à-implémenter-todo)
 18. [Commandes utiles](#18-commandes-utiles)
+19. [Système d'annonces (Announcements)](#19-système-dannonces-announcements)
 
 ---
 
@@ -703,47 +704,54 @@ Le panel admin est accessible sur `/admin` (nécessite d'être connecté avec ro
 - **Essai gratuit 24H** : 1 serveur Node.js gratuit par compte, suppression auto par cron, email de notification
 - **Sous-domaines automatiques** : `{nom}.flihost.site` via proxy Cloudflare + reverse proxy
 - **Paiement MoneyFusion** : packages coins, relay VPS, confirmation via webhook, codes promo
-- **Panel admin** : gestion utilisateurs (liste, ban, unban, suppr, coins, rôle)
+- **Panel admin** : gestion utilisateurs (liste, ban, unban, suppr, coins, rôle) + gestion des annonces
 - **Migration utilisateurs** : 73 utilisateurs importés depuis l'ancienne DB SQLite, emails de bienvenue envoyés
 - **Abonnements mensuels** : renouvellement automatique par cron, alertes expiration
 - **Notifications in-app** : système de notifications
-- **Parrainage** : codes de parrainage, bonus pour parrain et filleul
+- **Parrainage** : codes de parrainage, bonus pour parrain et filleul — champ toujours visible sur la page d'inscription
 - **Equipes** : création et gestion d'équipes
 - **Schedules** : redémarrage automatique de serveurs selon horaire
 - **Déploiements GitHub/ZIP** : upload et déploiement de projets sur les serveurs
 - **Domaines personnalisés** : ajout et vérification de domaines
+- **Landing page complète** : page d'accueil en français avec guide 3 étapes, features, CTA essai gratuit
+- **Page `/pricing`** : tarifs complets en FCFA/coins, FAQ
+- **Page 404 personnalisée** : thème sombre, liens utiles en français
+- **SEO & Open Graph** : meta tags complets, OG image, Twitter Card, `lang="fr"` dans `index.html`
+- **Widget support WhatsApp** : bouton flottant en bas à droite dans toutes les pages authentifiées
+- **Alerte coins bas** : bannière jaune dans la navbar quand `coins < 50`, avec bouton "Recharger"
+- **Streak visible** : badge flamme 🔥 dans le header du dashboard (si streak ≥ 2 jours)
+- **Système d'annonces** : backend CRUD + frontend sur le dashboard (dismissable, types info/warning/success/error)
+- **Email de bienvenue enrichi** : template HTML complet envoyé après vérification email (avec coins bonus, liens utiles)
 
 ### ⚠️ Partiellement implémenté
 
 - **Page docs** : existe mais contenu générique (pas de vraie documentation produit)
 - **Page status** : existe mais données statiques
 - **Marketplace** : backend existe, UI basique
+- **Admin panel annonces** : l'API est prête (`POST /api/admin/announcements`), l'UI admin n'a pas encore de section dédiée (peut utiliser l'API directement)
 
 ---
 
 ## 17. Fonctionnalités à implémenter (TODO)
 
-Voici ce qui a été identifié comme manquant ou à améliorer :
+Voici ce qui reste à faire :
 
 ### Priorité haute
 
-1. **Page `/pricing` manquante** — créer une page de tarifs avec les plans et prix en coins + équivalent FCFA
-2. **Homepage enrichie** — ajouter : section features, section "comment ça marche" (3 étapes), section tarifs, CTA vers l'essai gratuit, badges de confiance
-3. **Uniformiser la langue** — toute l'interface en français (la landing page est en anglais)
-4. **Afficher l'essai gratuit dans la landing** — mettre en avant le serveur gratuit 24H
+1. **UI admin pour les annonces** — ajouter un onglet "Annonces" dans `/admin` pour créer/supprimer/activer les annonces
+2. **Numéro WhatsApp configurable** — actuellement hardcodé comme `+22300000000`, à changer pour le vrai numéro dans `layout.tsx`
 
 ### Priorité moyenne
 
-5. **Dashboard amélioré** — graphiques d'utilisation, alertes coins faibles, serveurs récents
-6. **Vraie documentation produit** (page `/docs`) — guide d'utilisation, exemples de commandes
-7. **Page status dynamique** — uptime réel basé sur les métriques en DB
-8. **Notifications push / email digest** — résumé hebdomadaire par email
+3. **Vraie documentation produit** (page `/docs`) — guide d'utilisation, exemples de commandes
+4. **Page status dynamique** — uptime réel basé sur les métriques en DB
+5. **Notifications push / email digest** — résumé hebdomadaire par email
 
 ### Priorité basse
 
-9. **Mode revendeur** — le backend existe mais l'UI n'est pas complète
-10. **Marketplace de plugins** — système de templates/apps pré-configurées
-11. **Support 2FA** — authentification à deux facteurs
+6. **Mode revendeur** — le backend existe mais l'UI n'est pas complète
+7. **Marketplace de plugins** — système de templates/apps pré-configurées
+8. **Support 2FA** — authentification à deux facteurs
 
 ---
 
@@ -814,6 +822,71 @@ curl -X POST https://flihost.site/api/auth/login \
 5. **Drizzle ORM** : Toujours utiliser `db:push` pour synchroniser le schéma, jamais écrire du SQL manuel. Ne jamais changer le type d'une colonne `id` (serial ↔ uuid) sans migration sécurisée.
 
 6. **`archiver` npm** : Disponible dans les dépendances pour créer des ZIP. Utiliser le chemin `node_modules/.pnpm/archiver@7.0.1/node_modules/archiver`.
+
+---
+
+---
+
+## 19. Système d'annonces (Announcements)
+
+### Architecture
+
+La table `announcements` permet à l'admin de publier des messages visibles sur le dashboard des utilisateurs.
+
+**Schéma DB** : `lib/db/src/schema/announcements.ts`
+
+| Colonne | Type | Description |
+|---------|------|-------------|
+| `id` | serial | Clé primaire |
+| `title` | text | Titre de l'annonce |
+| `message` | text | Corps du message |
+| `type` | text | `info` / `warning` / `success` / `error` |
+| `active` | boolean | Visible si `true` |
+| `createdAt` | timestamp | Date de création |
+| `expiresAt` | timestamp | Expiration auto (optionnel) |
+
+### API Routes
+
+| Méthode | Route | Accès | Description |
+|---------|-------|-------|-------------|
+| `GET` | `/api/announcements` | Public | Annonces actives et non-expirées |
+| `POST` | `/api/admin/announcements` | Admin | Créer une annonce |
+| `PATCH` | `/api/admin/announcements/:id` | Admin | Modifier/activer/désactiver |
+| `DELETE` | `/api/admin/announcements/:id` | Admin | Supprimer |
+
+### Exemple: créer une annonce via API
+
+```bash
+curl -X POST https://flihost.site/api/admin/announcements \
+  -H "Authorization: Bearer <token_admin>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Maintenance programmée",
+    "message": "Le système sera en maintenance le 1er avril de 2h à 4h.",
+    "type": "warning",
+    "expiresAt": "2026-04-01T04:00:00Z"
+  }'
+```
+
+### Frontend
+
+- **Hook** : `artifacts/flyhost/src/hooks/use-announcements.ts` — récupère toutes les annonces actives via React Query, rafraîchi toutes les 10 minutes
+- **Dashboard** : affichage en haut de page avec couleur selon type, bouton "X" pour dismisser (côté client uniquement)
+- **TODO** : ajouter un onglet "Annonces" dans le panel `/admin` pour gérer via l'UI
+
+---
+
+## Modifications récentes (29 mars 2026)
+
+1. **Page 404** — refonte complète en français avec thème sombre, liens rapides (Dashboard, Serveurs, Documentation)
+2. **SEO & Open Graph** — `index.html` mis à jour : `lang="fr"`, meta description, OG tags, Twitter Card, theme-color
+3. **Widget WhatsApp** — bouton flottant vert en bas à droite dans `AppLayout` (lien vers `wa.me/22300000000`)  
+   ⚠️ **Changer le numéro** dans `artifacts/flyhost/src/components/layout.tsx` ligne ~330
+4. **Inscription** — champ code de parrainage maintenant toujours visible (optionnel, avec badge "+20 coins bonus")
+5. **Alerte coins bas** — bannière sous la navbar si `coins < 50` avec CTA "Recharger"
+6. **Dashboard** — badge streak 🔥 si ≥ 2 jours, bouton "Serveurs" ajouté dans le header, fil d'annonces avec dismiss
+7. **Email bienvenue** — template HTML complet envoyé après vérification email (`emailTemplates.welcomeEmail`)
+8. **Annonces** — nouvelle table DB `announcements`, routes CRUD admin, hook frontend `useAnnouncements`
 
 ---
 

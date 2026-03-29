@@ -11,3 +11,4 @@ export * from "./resellers";
 export * from "./metrics";
 export * from "./payments";
 export * from "./subdomains";
+export * from "./announcements";

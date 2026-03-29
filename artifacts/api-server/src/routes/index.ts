@@ -19,6 +19,7 @@ import apikeysRouter from "./apikeys";
 import schedulesRouter from "./schedules";
 import proxyRouter from "./proxy";
 import adminRouter from "./admin";
+import announcementsRouter from "./announcements";
 
 const router: IRouter = Router();
 
@@ -42,5 +43,6 @@ router.use(apikeysRouter);
 router.use(schedulesRouter);
 router.use(proxyRouter);
 router.use(adminRouter);
+router.use(announcementsRouter);
 
 export default router;

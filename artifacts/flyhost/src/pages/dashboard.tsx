@@ -4,11 +4,11 @@ import { fr } from "date-fns/locale";
 import { AppLayout } from "@/components/layout";
 import { useAuth } from "@/hooks/use-auth";
 import { useGetStats, useListProjects } from "@workspace/api-client-react";
+import { useAnnouncements } from "@/hooks/use-announcements";
 import { ProjectStatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Plus,
   Activity,
   Globe,
   Box,
@@ -22,7 +22,14 @@ import {
   ArrowRight,
   TrendingUp,
   Zap,
+  Flame,
+  Megaphone,
+  Info,
+  AlertTriangle,
+  X,
+  Server,
 } from "lucide-react";
+import { useState, type ReactNode } from "react";
 
 function StatCard({
   title,
@@ -88,31 +95,85 @@ function ProjectCardSkeleton() {
   );
 }
 
+function AnnouncementBanner({ ann, onClose }: { ann: { id: number; title: string; message: string; type: string }; onClose: (id: number) => void }) {
+  const colorMap: Record<string, { bg: string; border: string; icon: string; iconEl: ReactNode }> = {
+    info:    { bg: "bg-blue-500/8",    border: "border-blue-500/20",    icon: "text-blue-400",    iconEl: <Info className="w-4 h-4 flex-shrink-0" /> },
+    warning: { bg: "bg-yellow-400/8",  border: "border-yellow-400/20",  icon: "text-yellow-400",  iconEl: <AlertTriangle className="w-4 h-4 flex-shrink-0" /> },
+    success: { bg: "bg-emerald-500/8", border: "border-emerald-500/20", icon: "text-emerald-400", iconEl: <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> },
+    error:   { bg: "bg-red-500/8",     border: "border-red-500/20",     icon: "text-red-400",     iconEl: <AlertTriangle className="w-4 h-4 flex-shrink-0" /> },
+  };
+  const c = colorMap[ann.type] ?? colorMap.info;
+  return (
+    <div className={`rounded-xl border ${c.bg} ${c.border} p-4 flex items-start gap-3`}>
+      <span className={c.icon}>{c.iconEl}</span>
+      <div className="flex-1 min-w-0">
+        <p className={`font-semibold text-sm ${c.icon}`}>{ann.title}</p>
+        <p className="text-zinc-400 text-xs mt-0.5 leading-relaxed">{ann.message}</p>
+      </div>
+      <button onClick={() => onClose(ann.id)} className="text-zinc-600 hover:text-zinc-400 transition-colors flex-shrink-0 mt-0.5">
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const { data: stats, isLoading: isStatsLoading } = useGetStats();
   const { data: projects, isLoading: isProjectsLoading } = useListProjects();
+  const { data: announcements } = useAnnouncements();
+  const [dismissedIds, setDismissedIds] = useState<number[]>([]);
 
   const recentProjects = projects?.slice(0, 3) || [];
   const coins = (user as any)?.coins ?? 0;
   const planLabel = coins >= 4000 ? "Enterprise" : coins >= 1500 ? "Pro" : coins >= 500 ? "Starter" : "Free";
+  const streak = (user as any)?.loginStreak ?? 0;
+  const visibleAnnouncements = (announcements ?? []).filter((a) => !dismissedIds.includes(a.id));
 
   return (
     <AppLayout>
       <div className="max-w-6xl mx-auto space-y-8">
+
+        {/* Announcements */}
+        {visibleAnnouncements.length > 0 && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-xs font-semibold text-zinc-500 uppercase tracking-wide">
+              <Megaphone className="w-3.5 h-3.5" /> Annonces
+            </div>
+            {visibleAnnouncements.map((ann) => (
+              <AnnouncementBanner key={ann.id} ann={ann} onClose={(id) => setDismissedIds((prev) => [...prev, id])} />
+            ))}
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-white">
-              Bonjour, {user?.name?.split(" ")[0]} 👋
-            </h1>
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-2xl font-bold text-white">
+                Bonjour, {user?.name?.split(" ")[0]} 👋
+              </h1>
+              {streak >= 2 && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-orange-500/15 border border-orange-500/25">
+                  <Flame className="w-3.5 h-3.5 text-orange-400" />
+                  <span className="text-xs font-bold text-orange-400">{streak} jours</span>
+                </div>
+              )}
+            </div>
             <p className="text-zinc-500 text-sm mt-1">Bienvenue sur votre tableau de bord FlyHost</p>
           </div>
-          <Link href="/deploy">
-            <Button className="bg-yellow-400 text-black hover:bg-yellow-300 font-semibold gap-2 shadow-[0_0_20px_rgba(250,204,21,0.2)]">
-              <Rocket className="w-4 h-4" /> Déployer
-            </Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/servers">
+              <Button variant="outline" className="border-zinc-800 hover:border-zinc-600 gap-2 text-zinc-400 hover:text-white text-sm">
+                <Server className="w-4 h-4" /> Serveurs
+              </Button>
+            </Link>
+            <Link href="/deploy">
+              <Button className="bg-yellow-400 text-black hover:bg-yellow-300 font-semibold gap-2 shadow-[0_0_20px_rgba(250,204,21,0.2)]">
+                <Rocket className="w-4 h-4" /> Déployer
+              </Button>
+            </Link>
+          </div>
         </div>
 
         {/* Stats Grid */}
