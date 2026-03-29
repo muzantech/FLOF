@@ -348,6 +348,54 @@ export async function getPteroServer(serverId: number) {
   return pteroAppRequest(`/servers/${serverId}`);
 }
 
+/**
+ * Update server startup environment variables via the APPLICATION API (admin).
+ * This bypasses read-only restrictions on the client API.
+ * It GETs the current server config, merges the new env vars, then PATCHes startup.
+ */
+export async function updateServerEnvViaAppAPI(
+  serverId: number,
+  envUpdates: Record<string, string>
+): Promise<{ applied: string[] }> {
+  // GET current server config
+  const serverData = await pteroAppRequest(`/servers/${serverId}`);
+  const attrs = serverData.attributes;
+
+  // Merge existing environment with our updates
+  const currentEnv: Record<string, string> = attrs.container?.environment || {};
+  const mergedEnv: Record<string, string> = { ...currentEnv };
+  for (const [k, v] of Object.entries(envUpdates)) {
+    mergedEnv[k] = v;
+  }
+
+  // PATCH startup config with updated env
+  const patchBody = {
+    startup: attrs.container?.startup_command ?? "",
+    environment: mergedEnv,
+    egg: attrs.egg,
+    image: attrs.container?.image ?? "",
+    skip_scripts: false,
+  };
+
+  const res = await fetch(`${PANEL_URL}/api/application/servers/${serverId}/startup`, {
+    method: "PATCH",
+    headers: {
+      "Authorization": `Bearer ${APP_KEY}`,
+      "Accept": "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(patchBody),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`AppAPI startup update failed: ${res.status} ${body.substring(0, 200)}`);
+  }
+
+  const applied = Object.entries(envUpdates).map(([k, v]) => `${k} = ${JSON.stringify(v)}`);
+  return { applied };
+}
+
 export async function listClientServers() {
   return pteroClientRequest("/");
 }

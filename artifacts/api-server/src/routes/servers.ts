@@ -26,6 +26,7 @@ import {
   testClientKey,
   getServerStartup,
   updateStartupVariable,
+  updateServerEnvViaAppAPI,
 } from "../pterodactyl";
 
 const router: IRouter = Router();
@@ -719,18 +720,33 @@ router.post("/servers/:identifier/fix-startup", requireAuth, async (req: AuthReq
       return;
     }
 
-    // 2 — Apply updates to Pterodactyl startup variables
-    const applied: string[] = [];
-    for (const [key, value] of Object.entries(updates)) {
-      try {
-        await updateStartupVariable(identifier, key, value);
-        applied.push(`${key} = ${JSON.stringify(value)}`);
-      } catch {
-        applied.push(`${key} — variable non reconnue par cet egg`);
+    // 2 — Get internal server ID for Application API (bypasses read-only vars)
+    const serverInfo = await getPteroServerByIdentifier(identifier);
+    if (!serverInfo) {
+      res.status(404).json({ error: "Serveur introuvable via l'API admin" });
+      return;
+    }
+
+    // 3 — Force-apply env updates via APPLICATION API (overrides read-only restrictions)
+    let applied: string[] = [];
+    try {
+      const result = await updateServerEnvViaAppAPI(serverInfo.id, updates);
+      applied = result.applied;
+      fixes.push(`Variables mises à jour via l'API admin (bypasse lecture seule)`);
+    } catch (appErr: any) {
+      // Fallback: try client API (may fail on read-only vars)
+      fixes.push(`Application API échouée (${appErr.message}) — tentative API client`);
+      for (const [key, value] of Object.entries(updates)) {
+        try {
+          await updateStartupVariable(identifier, key, value);
+          applied.push(`${key} = ${JSON.stringify(value)}`);
+        } catch {
+          applied.push(`${key} — non applicable`);
+        }
       }
     }
 
-    // 3 — Kill then restart with corrected config
+    // 4 — Kill then restart with corrected config
     try { await sendPowerAction(identifier, "kill"); } catch {}
     await new Promise(r => setTimeout(r, 2500));
     try { await sendPowerAction(identifier, "start"); } catch {}

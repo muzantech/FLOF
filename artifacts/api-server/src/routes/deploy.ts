@@ -15,7 +15,27 @@ import path from "path";
 import os from "os";
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { uploadZipToPterodactyl, sendPowerAction, writeFileContents, purgeServerFiles, updateStartupVariable, getServerStats } from "../pterodactyl";
+import { uploadZipToPterodactyl, sendPowerAction, writeFileContents, purgeServerFiles, updateStartupVariable, getServerStats, updateServerEnvViaAppAPI, getPteroServerByIdentifier } from "../pterodactyl";
+
+// ————————————————————————————————————————————
+//  Helper: apply env updates via Application API (bypasses read-only vars),
+//  falls back to client API per-variable.
+// ————————————————————————————————————————————
+async function applyEnvUpdates(identifier: string, envUpdates: Record<string, string>): Promise<void> {
+  if (Object.keys(envUpdates).length === 0) return;
+  try {
+    const serverInfo = await getPteroServerByIdentifier(identifier);
+    if (serverInfo) {
+      await updateServerEnvViaAppAPI(serverInfo.id, envUpdates);
+      return;
+    }
+  } catch {
+    // fall through to client API
+  }
+  for (const [key, value] of Object.entries(envUpdates)) {
+    try { await updateStartupVariable(identifier, key, value); } catch { /* ignore */ }
+  }
+}
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -325,13 +345,16 @@ async function runDeploy(
     await logDeploy(deploymentId, "info", `Fichiers déployés sur le serveur`);
 
     // Apply Pterodactyl environment variables from analysis (before start)
+    // Uses Application API to bypass read-only restrictions on client API
     await logDeploy(deploymentId, "info", `Configuration des variables de démarrage...`);
-    for (const [key, value] of Object.entries(analysis.pteroEnvUpdates)) {
+    if (Object.keys(analysis.pteroEnvUpdates).length > 0) {
       try {
-        await updateStartupVariable(identifier, key, value);
-        await logDeploy(deploymentId, "info", `  ⚙️  ${key} = ${value}`);
-      } catch {
-        await logDeploy(deploymentId, "warn", `  Variable ${key} non reconnue par cet egg — ignorée`);
+        await applyEnvUpdates(identifier, analysis.pteroEnvUpdates);
+        for (const [key, value] of Object.entries(analysis.pteroEnvUpdates)) {
+          await logDeploy(deploymentId, "info", `  ⚙️  ${key} = ${value}`);
+        }
+      } catch (envErr: any) {
+        await logDeploy(deploymentId, "warn", `  Variables de démarrage non configurées: ${envErr.message}`);
       }
     }
 
@@ -367,7 +390,7 @@ async function runDeploy(
         if (FALLBACK_MAIN.length > 0) {
           const alt = FALLBACK_MAIN[0];
           await logDeploy(deploymentId, "info", `Correction : MAIN_FILE → ${alt}`);
-          try { await updateStartupVariable(identifier, "MAIN_FILE", alt); } catch {}
+          try { await applyEnvUpdates(identifier, { MAIN_FILE: alt, NODE_ARGS: "" }); } catch {}
           await sleep(1000);
           try { await sendPowerAction(identifier, "start"); } catch {}
           const alive2 = await checkServerAlive(identifier, 15000);
@@ -385,7 +408,7 @@ async function runDeploy(
         if (FALLBACK_PY.length > 0) {
           const alt = FALLBACK_PY[0];
           await logDeploy(deploymentId, "info", `Correction : PY_FILE → ${alt}`);
-          try { await updateStartupVariable(identifier, "PY_FILE", alt); } catch {}
+          try { await applyEnvUpdates(identifier, { PY_FILE: alt }); } catch {}
           await sleep(1000);
           try { await sendPowerAction(identifier, "start"); } catch {}
           const alive2 = await checkServerAlive(identifier, 15000);
@@ -705,12 +728,14 @@ async function applyAnalysis(
   for (const fix of analysis.fixes) {
     await logDeploy(deploymentId, "info", `  → ${fix}`);
   }
-  for (const [key, value] of Object.entries(analysis.pteroEnvUpdates)) {
+  if (Object.keys(analysis.pteroEnvUpdates).length > 0) {
     try {
-      await updateStartupVariable(identifier, key, value);
-      await logDeploy(deploymentId, "info", `⚙️  ${key} = ${value}`);
-    } catch {
-      await logDeploy(deploymentId, "warn", `Impossible de configurer ${key} (variable non reconnue par cet egg)`);
+      await applyEnvUpdates(identifier, analysis.pteroEnvUpdates);
+      for (const [key, value] of Object.entries(analysis.pteroEnvUpdates)) {
+        await logDeploy(deploymentId, "info", `⚙️  ${key} = ${value}`);
+      }
+    } catch (e: any) {
+      await logDeploy(deploymentId, "warn", `Variables de démarrage non configurées: ${e.message}`);
     }
   }
 }
