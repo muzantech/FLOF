@@ -1026,6 +1026,8 @@ export default function ServerDetailPage() {
   const [powerLoading, setPowerLoading] = useState(false);
   const [deletingServer, setDeletingServer] = useState(false);
   const [fixingStartup, setFixingStartup] = useState(false);
+  const [customSubdomain, setCustomSubdomain] = useState("");
+  const [subdomainSaving, setSubdomainSaving] = useState(false);
   const { toast } = useToast();
 
   async function loadServer() {
@@ -1036,7 +1038,7 @@ export default function ServerDetailPage() {
         const srv = data.servers?.find((s: any) =>
           s.identifier === identifier || s.identifier.startsWith(identifier)
         );
-        if (srv) setServer(srv);
+        if (srv) { setServer(srv); setCustomSubdomain(srv.subdomain || ""); }
       }
     } catch {}
     setLoading(false);
@@ -1114,6 +1116,32 @@ export default function ServerDetailPage() {
       toast({ variant: "destructive", title: "Erreur", description: e.message });
     }
     setDeletingServer(false);
+  }
+
+  async function saveSubdomain() {
+    if (!customSubdomain.trim()) return;
+    setSubdomainSaving(true);
+    try {
+      const res = await fetch(`/api/servers/${identifier}/subdomain`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subdomain: customSubdomain.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setServer(prev => prev ? {
+          ...prev,
+          subdomain: data.subdomain,
+          subdomainUrl: data.url,
+        } : prev);
+        toast({ title: "Sous-domaine mis à jour", description: data.url });
+      } else {
+        toast({ variant: "destructive", title: "Erreur", description: data.error });
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Erreur", description: e.message });
+    }
+    setSubdomainSaving(false);
   }
 
   useEffect(() => {
@@ -1355,6 +1383,71 @@ export default function ServerDetailPage() {
                   <Zap className="w-4 h-4 text-yellow-400" /> Actions serveur
                 </h3>
                 <PowerButtons onAction={powerAction} isRunning={isRunning} loading={powerLoading} />
+              </div>
+
+              {/* Subdomain settings */}
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+                <h3 className="text-base font-semibold text-white mb-1 flex items-center gap-2">
+                  <ExternalLink className="w-4 h-4 text-yellow-400" /> Sous-domaine & URL
+                </h3>
+                <p className="text-xs text-zinc-500 mb-4">
+                  Votre app est accessible via ce sous-domaine. Le DNS pointe directement sur Wings (HTTPS sur le port alloué).
+                </p>
+
+                {/* Current URL display */}
+                {server?.subdomainUrl && (
+                  <div className="mb-4 p-3 rounded-lg bg-zinc-950 border border-zinc-800">
+                    <p className="text-xs text-zinc-500 mb-1">URL actuelle</p>
+                    <a
+                      href={server.subdomainUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-sm font-mono text-yellow-300 hover:text-yellow-200 break-all underline underline-offset-2"
+                    >
+                      {server.subdomainUrl}
+                    </a>
+                    {server.appUrl && server.appUrl !== server.subdomainUrl && (
+                      <>
+                        <p className="text-xs text-zinc-500 mt-2 mb-1">URL directe (IP)</p>
+                        <a
+                          href={server.appUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs font-mono text-zinc-400 hover:text-zinc-300 break-all"
+                        >
+                          {server.appUrl}
+                        </a>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Custom subdomain input */}
+                <div className="space-y-2">
+                  <label className="text-xs text-zinc-400 font-semibold block">Personnaliser le sous-domaine</label>
+                  <div className="flex gap-2 items-center">
+                    <div className="flex flex-1 items-center gap-0 rounded-lg border border-zinc-700 bg-zinc-900 overflow-hidden focus-within:border-yellow-400/50">
+                      <Input
+                        className="flex-1 bg-transparent border-0 font-mono text-sm h-9 focus-visible:ring-0 focus-visible:ring-offset-0"
+                        value={customSubdomain}
+                        onChange={e => setCustomSubdomain(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                        placeholder="mon-app"
+                        maxLength={32}
+                      />
+                      <span className="text-xs text-zinc-500 pr-3 whitespace-nowrap">.flihost.site:{server?.allocation?.port}</span>
+                    </div>
+                    <Button
+                      size="sm"
+                      className="h-9 px-4 bg-yellow-400 text-black hover:bg-yellow-300 font-semibold gap-1.5 flex-shrink-0"
+                      onClick={saveSubdomain}
+                      disabled={subdomainSaving || !customSubdomain.trim() || customSubdomain.length < 3}
+                    >
+                      {subdomainSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                      Sauver
+                    </Button>
+                  </div>
+                  <p className="text-xs text-zinc-600">3 à 32 caractères, minuscules, chiffres et tirets uniquement</p>
+                </div>
               </div>
 
               {/* Danger zone */}

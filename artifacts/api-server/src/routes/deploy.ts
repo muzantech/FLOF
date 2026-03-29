@@ -467,8 +467,8 @@ async function runDeploy(
           await updateServerEnvViaAppAPI(serverInfo.id, { SERVER_SUBDOMAIN: subdomain }).catch(() => {});
           // Create Cloudflare DNS (no-op if wildcard already covers it)
           await createSubdomainDNS(subdomain).catch(() => {});
-          deployUrl = port ? `http://${ip}:${port}` : null;
-          const subdomainUrl = port ? `http://${subdomain}.flihost.site:${port}` : `https://${subdomain}.flihost.site`;
+          deployUrl = port ? `https://${ip}:${port}` : null;
+          const subdomainUrl = port ? `https://${subdomain}.flihost.site:${port}` : `https://${subdomain}.flihost.site`;
           if (deployUrl) {
             await logDeploy(deploymentId, "info", `🌐 URL directe    : ${deployUrl}`);
           }

@@ -57,12 +57,13 @@ export async function ensureWildcardDNS(): Promise<void> {
 export async function createSubdomainDNS(subdomain: string): Promise<boolean> {
   if (!CF_TOKEN || !CF_ZONE_ID || !SERVER_IP) return false;
   try {
+    // proxied: false so traffic hits Wings directly on the allocated port (Wings handles HTTPS/SSL)
     const result = await cfRequest(`/zones/${CF_ZONE_ID}/dns_records`, "POST", {
       type: "A",
       name: `${subdomain}.${CF_DOMAIN}`,
       content: SERVER_IP,
-      proxied: true,
-      ttl: 1,
+      proxied: false,
+      ttl: 60,
     });
     return !!result;
   } catch {

@@ -525,26 +525,33 @@ router.put("/servers/:id/subdomain", requireAuth, async (req: AuthRequest, res):
     if (!/^[a-z0-9-]{3,32}$/.test(subdomain)) {
       res.status(400).json({ error: "Sous-domaine invalide (3-32 car., minuscules, chiffres, tirets)" }); return;
     }
-    // Create Cloudflare DNS record
-    const dnsOk = await createSubdomainDNS(subdomain);
-    // Store subdomain in Pterodactyl env via Application API
+
+    const serverInfo = await getPteroServerByIdentifier(identifier);
+    if (!serverInfo) { res.status(404).json({ error: "Serveur introuvable" }); return; }
+
+    const full = await getPteroServer(serverInfo.id);
+    const alloc = full?.relationships?.allocations?.data?.[0]?.attributes;
+    const port: number | null = alloc?.port ?? null;
+
+    // Delete old DNS record if SERVER_SUBDOMAIN was set previously
     try {
-      const serverInfo = await getPteroServerByIdentifier(identifier);
-      if (serverInfo) {
-        await updateServerEnvViaAppAPI(serverInfo.id, { SERVER_SUBDOMAIN: subdomain });
-      }
-    } catch { /* non-blocking */ }
-    // Get allocation port for the URL
-    let port: number | null = null;
-    try {
-      const srv = await getPteroServerByIdentifier(identifier);
-      if (srv) {
-        const full = await getPteroServer(srv.id);
-        port = full?.relationships?.allocations?.data?.[0]?.attributes?.port ?? null;
+      const startupData = await getServerStartup(identifier);
+      const vars: any[] = startupData?.data || [];
+      const prevVar = vars.find((v: any) => v.attributes?.env_variable === "SERVER_SUBDOMAIN");
+      const prevSubdomain = prevVar?.attributes?.server_value || prevVar?.attributes?.default_value;
+      if (prevSubdomain && prevSubdomain !== subdomain) {
+        await deleteSubdomainDNS(prevSubdomain).catch(() => {});
       }
     } catch { /* ignore */ }
-    const appUrl = port ? `http://${subdomain}.flihost.site:${port}` : `https://${subdomain}.flihost.site`;
-    res.json({ success: true, subdomain, url: appUrl, dnsCreated: dnsOk });
+
+    // Create new Cloudflare DNS record (proxied: false — Wings handles HTTPS)
+    const dnsOk = await createSubdomainDNS(subdomain);
+
+    // Store new subdomain in Pterodactyl env
+    await updateServerEnvViaAppAPI(serverInfo.id, { SERVER_SUBDOMAIN: subdomain }).catch(() => {});
+
+    const url = port ? `https://${subdomain}.flihost.site:${port}` : `https://${subdomain}.flihost.site`;
+    res.json({ success: true, subdomain, url, port, dnsCreated: dnsOk });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -795,10 +802,10 @@ function formatServer(s: any) {
   const alloc = a.relationships?.allocations?.data?.[0]?.attributes;
   const subdomain = generateSubdomain(a.name);
   const appUrl = alloc?.port
-    ? `http://${alloc.ip}:${alloc.port}`
+    ? `https://${alloc.ip}:${alloc.port}`
     : null;
   const subdomainUrl = alloc?.port
-    ? `http://${subdomain}.flihost.site:${alloc.port}`
+    ? `https://${subdomain}.flihost.site:${alloc.port}`
     : `https://${subdomain}.flihost.site`;
   return {
     id: a.id,
