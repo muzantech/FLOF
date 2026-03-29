@@ -82,14 +82,32 @@ router.post("/auth/register", async (req, res): Promise<void> => {
 
 router.post("/auth/login", async (req, res): Promise<void> => {
   const { email, password } = req.body;
-  if (!email || !password) {
-    res.status(400).json({ error: "Email and password required" });
+  const identifier = email; // can be email or username
+  if (!identifier || !password) {
+    res.status(400).json({ error: "Email/username and password required" });
     return;
   }
 
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email)).limit(1);
+  // Try by email first, then by username
+  const isEmail = identifier.includes("@");
+  let user;
+  if (isEmail) {
+    [user] = await db.select().from(usersTable).where(eq(usersTable.email, identifier)).limit(1);
+  } else {
+    [user] = await db.select().from(usersTable).where(eq(usersTable.username, identifier)).limit(1);
+  }
+
+  // Fallback: if not found by email, try username and vice versa
   if (!user) {
-    res.status(401).json({ error: "Invalid credentials" });
+    if (isEmail) {
+      [user] = await db.select().from(usersTable).where(eq(usersTable.username, identifier)).limit(1);
+    } else {
+      [user] = await db.select().from(usersTable).where(eq(usersTable.email, identifier)).limit(1);
+    }
+  }
+
+  if (!user) {
+    res.status(401).json({ error: "Identifiants invalides" });
     return;
   }
 
