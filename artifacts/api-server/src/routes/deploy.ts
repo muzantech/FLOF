@@ -1068,28 +1068,73 @@ function analyzeJavaProject(srcDir: string, files: string[]): ProjectAnalysis {
   const pteroEnvUpdates: Record<string, string> = {};
 
   const jars = files.filter(f => f.toLowerCase().endsWith(".jar") && !f.includes("node_modules"));
-  let jarFile = "app.jar";
+  const javaSources = files.filter(f => f.toLowerCase().endsWith(".java") && !f.includes("node_modules"));
   let confidence: "high" | "medium" | "low" = "low";
 
-  if (jars.length === 1) {
-    jarFile = path.basename(jars[0]);
-    fixes.push(`JAR auto-détecté : ${jarFile}`);
-    confidence = "high";
-  } else if (jars.length > 1) {
-    const main = jars.find(j => !/(sources|javadoc|test)/.test(path.basename(j)));
-    if (main) {
-      jarFile = path.basename(main);
+  // ── JAR mode: project provides a pre-compiled JAR ──────────────────────────
+  if (jars.length > 0) {
+    let jarFile = "app.jar";
+    if (jars.length === 1) {
+      jarFile = path.basename(jars[0]);
+      fixes.push(`JAR auto-détecté : ${jarFile}`);
+      confidence = "high";
+    } else {
+      const main = jars.find(j => !/(sources|javadoc|test)/.test(path.basename(j)));
+      jarFile = main ? path.basename(main) : path.basename(jars[0]);
       fixes.push(`JAR principal parmi ${jars.length} archives: ${jarFile}`);
       confidence = "high";
     }
-  } else {
-    fixes.push(`Aucun JAR trouvé — défaut: app.jar`);
+    pteroEnvUpdates["JARFILE"] = jarFile;
+    return {
+      startCommand: `java -jar ${jarFile}`,
+      pteroEnvUpdates, fixes, confidence,
+    };
   }
 
-  pteroEnvUpdates["JARFILE"] = jarFile;
+  // ── Source mode: compile .java files at startup ─────────────────────────────
+  if (javaSources.length > 0) {
+    // Find the main class (class with public static void main)
+    let mainClass = "Main";
+    let mainFile = "Main.java";
+
+    // Try to detect main class from file names (App.java, Main.java, Server.java, etc.)
+    const mainCandidates = ["Main.java", "App.java", "Server.java", "Application.java", "Run.java"];
+    const found = mainCandidates.find(c => javaSources.some(f => path.basename(f) === c));
+    if (found) {
+      mainFile = found;
+      mainClass = found.replace(".java", "");
+    } else {
+      // Use first .java file as main
+      mainFile = path.basename(javaSources[0]);
+      mainClass = mainFile.replace(".java", "");
+    }
+
+    fixes.push(`${javaSources.length} fichier(s) .java → compilation automatique avec javac`);
+    fixes.push(`Classe principale: ${mainClass}`);
+
+    // Startup: find src dir, compile all java files, run main class
+    const srcSubdir = javaSources[0].includes("src/") ? "src" : ".";
+    const compileCmd = `find /home/container -name "*.java" | xargs javac -d /home/container/out 2>&1 && mkdir -p /home/container/out`;
+    const runCmd = `java -cp /home/container/out ${mainClass}`;
+    const startup = `mkdir -p /home/container/out && find /home/container -name "*.java" | xargs javac -d /home/container/out 2>&1 && ${runCmd}`;
+
+    pteroEnvUpdates["JARFILE"] = "server.jar";
+    pteroEnvUpdates["STARTUP"] = startup;
+
+    confidence = javaSources.length > 0 ? "high" : "low";
+
+    return {
+      startCommand: startup,
+      pteroEnvUpdates, fixes, confidence,
+    };
+  }
+
+  // ── Fallback: no JAR and no source ─────────────────────────────────────────
+  fixes.push(`Aucun JAR ou source .java trouvé — défaut: app.jar`);
+  pteroEnvUpdates["JARFILE"] = "app.jar";
 
   return {
-    startCommand: `java -jar ${jarFile}`,
+    startCommand: `java -jar app.jar`,
     pteroEnvUpdates, fixes, confidence,
   };
 }

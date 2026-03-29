@@ -15,6 +15,8 @@ export const EGG_CONFIGS: Record<string, {
   startup: string;
   environment: Record<string, string>;
   limits: { memory: number; swap: number; disk: number; io: number; cpu: number };
+  /** If true, the egg does NOT support a STARTUP env variable — startup is set only via the startup field */
+  noStartupVar?: boolean;
 }> = {
   "vanilla-mc": {
     label: "Minecraft Vanilla",
@@ -101,6 +103,7 @@ export const EGG_CONFIGS: Record<string, {
       USER_UPLOAD: "0",
     },
     limits: { memory: 512, swap: 0, disk: 2048, io: 500, cpu: 100 },
+    noStartupVar: true,
   },
   "java": {
     label: "Java générique",
@@ -111,6 +114,7 @@ export const EGG_CONFIGS: Record<string, {
       JARFILE: "server.jar",
     },
     limits: { memory: 1024, swap: 0, disk: 5120, io: 500, cpu: 100 },
+    noStartupVar: true,
   },
   "teamspeak": {
     label: "TeamSpeak 3",
@@ -374,6 +378,14 @@ export async function updateServerEnvViaAppAPI(
     mergedEnv[k] = v;
   }
 
+  // Check if the current egg supports the STARTUP env var
+  // Eggs with noStartupVar:true (Java, PHP) don't support STARTUP as an env variable
+  const currentEggId = attrs.egg as number;
+  const eggConfig = Object.values(EGG_CONFIGS).find(c => c.eggId === currentEggId);
+  if (eggConfig?.noStartupVar) {
+    delete mergedEnv["STARTUP"];
+  }
+
   // Use provided startupCommand override, or fall back to current startup_command
   const startup = startupCommand ?? attrs.container?.startup_command ?? "";
 
@@ -493,8 +505,10 @@ export async function switchServerEgg(
     const newEnv: Record<string, string> = { ...config.environment, ...currentEnv };
     // Effective startup: use provided cmd, fall back to egg's own default startup
     const effectiveStartup = startupCmd || config.startup;
-    // Inject STARTUP so the egg uses our command (if applicable)
-    if (startupCmd) newEnv["STARTUP"] = startupCmd;
+    // Inject STARTUP so the egg uses our command — only if the egg supports STARTUP env var
+    if (startupCmd && !config.noStartupVar) newEnv["STARTUP"] = startupCmd;
+    // Remove STARTUP from env if the egg doesn't support it (prevents 422)
+    if (config.noStartupVar) delete newEnv["STARTUP"];
 
     // PATCH startup with new egg
     const patchRes = await fetch(`${PANEL_URL}/api/application/servers/${serverId}/startup`, {

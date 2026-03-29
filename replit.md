@@ -152,6 +152,31 @@ artifacts-monorepo/
 - Animated orb backgrounds (yellow + orange blur)
 - FlyLayout component uses inline CSS styles (not Tailwind)
 
+## Supported Runtimes (Fully Tested)
+
+| Runtime | Method | Deploy Time | Notes |
+|---------|--------|-------------|-------|
+| Node.js | Node.js egg (egg 15) | ~29s | Auto-detects entry point |
+| TypeScript | Node.js egg + tsx/ts-node | ~30s | Transpiled at startup |
+| Python | Python egg (egg 18) | ~29s | Auto-installs requirements.txt |
+| Static HTML/CSS/JS | Node.js egg + npx serve | ~36s | Includes egg switch |
+| Java (source) | Java egg (egg 16) | ~30s | javac auto-compile at startup |
+| Java (JAR) | Java egg (egg 16) | ~25s | Direct jar execution |
+| Bun | Node.js egg (fallback) | ~29s | Falls back to node if bun unavailable |
+| Deno | Node.js egg (fallback) | ~29s | Falls back to node if deno unavailable |
+| Ruby | Node.js egg (fallback) | ~29s | Requires ruby in container |
+| Go | Node.js egg (fallback) | ~29s | Requires go toolchain in container |
+| PHP | PHP egg (egg 19) | N/A | ⚠️ Infrastructure limitation: Wings node can't run PHP containers |
+
+**Cross-runtime switching**: Auto-detected egg switch takes ~92s (reinstall + file preservation).
+
+**Java specifics**:
+- Source files (.java): auto-compiled with `javac` at container startup
+- JAR files: executed directly with `java -jar`
+- Main class detection: looks for Main.java, App.java, Server.java, Application.java, or first .java file
+
+**PHP**: EGG_CONFIG has `noStartupVar: true` — prevents injecting STARTUP env var which Java egg doesn't support either. Both use the startup field directly.
+
 ## Subdomain Reverse Proxy Architecture
 
 FlyHost uses a clean URL architecture for deployed apps:
