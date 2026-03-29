@@ -41,8 +41,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const token = localStorage.getItem("flyhost_token");
         if (token) {
           config = config || {};
+          const existing = config.headers instanceof Headers
+            ? Object.fromEntries((config.headers as Headers).entries())
+            : (config.headers as Record<string, string> || {});
           config.headers = {
-            ...config.headers,
+            ...existing,
             Authorization: `Bearer ${token}`,
           };
         }

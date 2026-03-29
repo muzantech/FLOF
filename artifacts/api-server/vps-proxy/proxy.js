@@ -367,13 +367,14 @@ function handleUpgrade(req, socket, head) {
     const upstream = tls.connect({ host: apiHost, port: 443, servername: apiHost }, () => {
       upstream.write(`${req.method} ${req.url} HTTP/1.1\r\n`);
       for (const [k, v] of Object.entries(req.headers)) {
-        upstream.write(`${k}: ${v}\r\n`);
+        const val = k.toLowerCase() === "host" ? apiHost : (Array.isArray(v) ? v.join(", ") : v);
+        upstream.write(`${k}: ${val}\r\n`);
       }
       upstream.write("\r\n");
       if (head?.length) upstream.write(head);
       socket.pipe(upstream).pipe(socket);
     });
-    upstream.on("error", () => socket.destroy());
+    upstream.on("error", (err) => { console.error("[ws-api] upstream error:", err.message); socket.destroy(); });
     socket.on("error", () => upstream.destroy());
     return;
   }
