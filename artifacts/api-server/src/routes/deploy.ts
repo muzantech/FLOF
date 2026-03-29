@@ -573,6 +573,11 @@ function analyzeNodeProject(srcDir: string): ProjectAnalysis {
   };
 }
 
+// Helper: build Python startup string (pip install + run)
+function buildPyStartup(cmd: string): string {
+  return `if [ -f /home/container/requirements.txt ]; then pip install -r /home/container/requirements.txt 2>&1 || true; fi; ${cmd}`;
+}
+
 function analyzePythonProject(srcDir: string): ProjectAnalysis {
   const fixes: string[] = [];
   const pteroEnvUpdates: Record<string, string> = {};
@@ -590,18 +595,20 @@ function analyzePythonProject(srcDir: string): ProjectAnalysis {
   const PY_CANDIDATES = ["main.py", "app.py", "run.py", "server.py", "bot.py", "index.py", "manage.py"];
   let entryFile = PY_CANDIDATES.find(c => fs.existsSync(path.join(srcDir, c))) || "";
 
-  // Django
+  // ── Django ────────────────────────────────────────────────────────────
   if (isDjango && fs.existsSync(path.join(srcDir, "manage.py"))) {
     fixes.push(`Django détecté → manage.py runserver`);
+    const startupCmd = buildPyStartup(`/usr/local/bin/python3 /home/container/manage.py runserver 0.0.0.0:\${SERVER_PORT:-8000}`);
     pteroEnvUpdates["PY_FILE"] = "manage.py";
     pteroEnvUpdates["REQUIREMENTS_FILE"] = "requirements.txt";
+    pteroEnvUpdates["STARTUP"] = startupCmd;
     return {
-      startCommand: "python manage.py runserver 0.0.0.0:${SERVER_PORT:-3000}",
+      startCommand: "python manage.py runserver 0.0.0.0:${SERVER_PORT:-8000}",
       pteroEnvUpdates, fixes, confidence: "high",
     };
   }
 
-  // FastAPI / uvicorn
+  // ── FastAPI / uvicorn ─────────────────────────────────────────────────
   if (isFastAPI || isUvicorn) {
     const module = entryFile ? path.basename(entryFile, ".py") : "main";
     let appVar = "app";
@@ -613,37 +620,45 @@ function analyzePythonProject(srcDir: string): ProjectAnalysis {
       } catch {}
     }
     fixes.push(`FastAPI + Uvicorn → uvicorn ${module}:${appVar} --host 0.0.0.0`);
+    const startupCmd = buildPyStartup(`uvicorn ${module}:${appVar} --host 0.0.0.0 --port \${SERVER_PORT:-8000}`);
     pteroEnvUpdates["PY_FILE"] = entryFile || "main.py";
     pteroEnvUpdates["REQUIREMENTS_FILE"] = "requirements.txt";
+    pteroEnvUpdates["STARTUP"] = startupCmd;
     return {
-      startCommand: `uvicorn ${module}:${appVar} --host 0.0.0.0 --port \${SERVER_PORT:-3000}`,
+      startCommand: `uvicorn ${module}:${appVar} --host 0.0.0.0 --port \${SERVER_PORT:-8000}`,
       pteroEnvUpdates, fixes, confidence: "high",
     };
   }
 
-  // Flask
+  // ── Flask ─────────────────────────────────────────────────────────────
   if (isFlask) {
-    const module = entryFile ? path.basename(entryFile, ".py") : "app";
-    fixes.push(`Flask détecté → ${isGunicorn ? "gunicorn" : "python"} ${entryFile || "app.py"}`);
-    pteroEnvUpdates["PY_FILE"] = entryFile || "app.py";
+    const pyEntry = entryFile || "app.py";
+    const module = path.basename(pyEntry, ".py");
+    fixes.push(`Flask détecté → ${isGunicorn ? "gunicorn" : "python"} ${pyEntry}`);
+    const runCmd = isGunicorn
+      ? `gunicorn ${module}:app --bind 0.0.0.0:\${SERVER_PORT:-8000}`
+      : `/usr/local/bin/python3 /home/container/${pyEntry}`;
+    const startupCmd = buildPyStartup(runCmd);
+    pteroEnvUpdates["PY_FILE"] = pyEntry;
     pteroEnvUpdates["REQUIREMENTS_FILE"] = "requirements.txt";
+    pteroEnvUpdates["STARTUP"] = startupCmd;
     return {
-      startCommand: isGunicorn
-        ? `gunicorn ${module}:app --bind 0.0.0.0:\${SERVER_PORT:-3000}`
-        : `python ${entryFile || "app.py"}`,
+      startCommand: isGunicorn ? `gunicorn ${module}:app --bind 0.0.0.0:3000` : `python ${pyEntry}`,
       pteroEnvUpdates, fixes, confidence: "high",
     };
   }
 
-  // Generic
+  // ── Generic Python ────────────────────────────────────────────────────
   if (!entryFile) {
     entryFile = "main.py";
     fixes.push(`Aucun point d'entrée trouvé — défaut: main.py`);
   } else {
     fixes.push(`Point d'entrée auto-détecté : ${entryFile}`);
   }
+  const startupCmd = buildPyStartup(`/usr/local/bin/python3 /home/container/${entryFile}`);
   pteroEnvUpdates["PY_FILE"] = entryFile;
   pteroEnvUpdates["REQUIREMENTS_FILE"] = "requirements.txt";
+  pteroEnvUpdates["STARTUP"] = startupCmd;
 
   return {
     startCommand: `python ${entryFile}`,
