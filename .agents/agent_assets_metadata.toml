@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "QR9Y3xW2DFeVIHCaVTp38"
+uri = "file://DOCUMENTATION.md"
+type = "text"
+title = "FlyHost — Documentation Complète"

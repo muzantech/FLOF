@@ -28,6 +28,7 @@ import InvoicesPage from "@/pages/invoices";
 import HistoryPage from "@/pages/history";
 import StatusPage from "@/pages/status";
 import DocsPage from "@/pages/docs";
+import PricingPage from "@/pages/pricing";
 import AdminPage from "@/pages/admin";
 import ServersPage from "@/pages/servers";
 import ServerDetailPage from "@/pages/server-detail";
@@ -117,6 +118,7 @@ function Router() {
       {/* Public Routes */}
       <Route path="/status" component={StatusPage} />
       <Route path="/docs" component={DocsPage} />
+      <Route path="/pricing" component={PricingPage} />
       
       <Route component={NotFound} />
     </Switch>
