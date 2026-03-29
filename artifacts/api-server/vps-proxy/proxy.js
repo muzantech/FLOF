@@ -166,49 +166,72 @@ function proxyToApi(clientReq, clientRes) {
 
 // ─────────────────── Subdomain proxy ─────────────────────────────────────────
 function proxyToContainer(subdomain, route, clientReq, clientRes) {
-  const options = {
-    hostname: route.host,
-    port: route.port,
-    path: clientReq.url,
-    method: clientReq.method,
-    headers: {
-      ...clientReq.headers,
-      host: `${route.host}:${route.port}`,
-      "x-forwarded-for": clientReq.socket.remoteAddress || "",
-      "x-forwarded-host": clientReq.headers.host || "",
-      "x-forwarded-proto": "https",
-      "x-real-ip": clientReq.socket.remoteAddress || "",
-    },
-    timeout: 30_000,
-  };
+  // First probe TCP connectivity with a short timeout (5s) to fail fast
+  // instead of hanging until Cloudflare's timeout (which would cause a 504)
+  const probe = net.createConnection({ host: route.host, port: route.port });
+  probe.setTimeout(5_000);
 
-  const proxyReq = http.request(options, (proxyRes) => {
-    const headers = { ...proxyRes.headers, "x-powered-by": "FlyHost" };
-    clientRes.writeHead(proxyRes.statusCode, headers);
-    proxyRes.pipe(clientRes, { end: true });
-  });
-
-  proxyReq.on("timeout", () => {
-    proxyReq.destroy();
-    if (!clientRes.headersSent) {
-      sendHtml(clientRes, 504,
-        `<h1>Délai dépassé</h1>
-         <p>L'app <strong>${subdomain}.${LOCAL_DOMAIN}</strong> ne répond pas.</p>
-         <p><code>504 Gateway Timeout</code></p>`);
-    }
-  });
-
-  proxyReq.on("error", () => {
+  const fail502 = () => {
+    probe.destroy();
     if (!clientRes.headersSent) {
       sendHtml(clientRes, 502,
-        `<h1>Application inaccessible</h1>
-         <p><strong>${subdomain}.${LOCAL_DOMAIN}</strong> n'est pas démarrée (port ${route.port}).</p>
-         <p>Vérifiez que votre serveur est en ligne depuis le <a href="https://${LOCAL_DOMAIN}">tableau de bord FlyHost</a>.</p>
+        `<h1>Application hors ligne</h1>
+         <p><strong>${subdomain}.${LOCAL_DOMAIN}</strong> n'est pas démarrée ou ne répond pas.</p>
+         <p>Démarrez votre serveur depuis le <a href="https://${LOCAL_DOMAIN}">tableau de bord FlyHost</a>.</p>
          <p><code>502 Bad Gateway</code></p>`);
     }
-  });
+  };
 
-  clientReq.pipe(proxyReq, { end: true });
+  probe.on("timeout", fail502);
+  probe.on("error", fail502);
+
+  probe.on("connect", () => {
+    // Connection works — destroy probe and do the real proxy request
+    probe.destroy();
+
+    const options = {
+      hostname: route.host,
+      port: route.port,
+      path: clientReq.url,
+      method: clientReq.method,
+      headers: {
+        ...clientReq.headers,
+        host: `${route.host}:${route.port}`,
+        "x-forwarded-for": clientReq.socket.remoteAddress || "",
+        "x-forwarded-host": clientReq.headers.host || "",
+        "x-forwarded-proto": "https",
+        "x-real-ip": clientReq.socket.remoteAddress || "",
+      },
+      timeout: 30_000,
+    };
+
+    const proxyReq = http.request(options, (proxyRes) => {
+      const headers = { ...proxyRes.headers, "x-powered-by": "FlyHost" };
+      clientRes.writeHead(proxyRes.statusCode, headers);
+      proxyRes.pipe(clientRes, { end: true });
+    });
+
+    proxyReq.on("timeout", () => {
+      proxyReq.destroy();
+      if (!clientRes.headersSent) {
+        sendHtml(clientRes, 504,
+          `<h1>Délai dépassé</h1>
+           <p>L'app <strong>${subdomain}.${LOCAL_DOMAIN}</strong> ne répond pas dans le délai imparti.</p>
+           <p><code>504 Gateway Timeout</code></p>`);
+      }
+    });
+
+    proxyReq.on("error", (err) => {
+      if (!clientRes.headersSent) {
+        sendHtml(clientRes, 502,
+          `<h1>Erreur de connexion</h1>
+           <p><strong>${subdomain}.${LOCAL_DOMAIN}</strong> : ${err.message}</p>
+           <p><code>502 Bad Gateway</code></p>`);
+      }
+    });
+
+    clientReq.pipe(proxyReq, { end: true });
+  });
 }
 
 // ─────────────────── Main handler ────────────────────────────────────────────
