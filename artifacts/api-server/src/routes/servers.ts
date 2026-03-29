@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
 import { db, usersTable, coinTransactionsTable, deploymentsTable, deploymentLogsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
+import { createSubdomainDNS, deleteSubdomainDNS } from "../cloudflare";
 import {
   EGG_CONFIGS,
   getOrCreatePteroUser,
@@ -518,13 +519,32 @@ function getTemplateFiles(template: string, projectName: string): Record<string,
 // PUT /api/servers/:id/subdomain
 router.put("/servers/:id/subdomain", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   try {
+    const identifier = req.params.id;
     const { subdomain } = req.body;
     if (!subdomain) { res.status(400).json({ error: "Sous-domaine requis" }); return; }
     if (!/^[a-z0-9-]{3,32}$/.test(subdomain)) {
       res.status(400).json({ error: "Sous-domaine invalide (3-32 car., minuscules, chiffres, tirets)" }); return;
     }
-    // We store this conceptually; actual routing is via the proxy
-    res.json({ success: true, subdomain, url: `https://${subdomain}.flihost.site` });
+    // Create Cloudflare DNS record
+    const dnsOk = await createSubdomainDNS(subdomain);
+    // Store subdomain in Pterodactyl env via Application API
+    try {
+      const serverInfo = await getPteroServerByIdentifier(identifier);
+      if (serverInfo) {
+        await updateServerEnvViaAppAPI(serverInfo.id, { SERVER_SUBDOMAIN: subdomain });
+      }
+    } catch { /* non-blocking */ }
+    // Get allocation port for the URL
+    let port: number | null = null;
+    try {
+      const srv = await getPteroServerByIdentifier(identifier);
+      if (srv) {
+        const full = await getPteroServer(srv.id);
+        port = full?.relationships?.allocations?.data?.[0]?.attributes?.port ?? null;
+      }
+    } catch { /* ignore */ }
+    const appUrl = port ? `http://${subdomain}.flihost.site:${port}` : `https://${subdomain}.flihost.site`;
+    res.json({ success: true, subdomain, url: appUrl, dnsCreated: dnsOk });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -766,8 +786,20 @@ router.post("/servers/:identifier/fix-startup", requireAuth, async (req: AuthReq
   }
 });
 
+function generateSubdomain(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").substring(0, 32) || "server";
+}
+
 function formatServer(s: any) {
   const a = s.attributes;
+  const alloc = a.relationships?.allocations?.data?.[0]?.attributes;
+  const subdomain = generateSubdomain(a.name);
+  const appUrl = alloc?.port
+    ? `http://${alloc.ip}:${alloc.port}`
+    : null;
+  const subdomainUrl = alloc?.port
+    ? `http://${subdomain}.flihost.site:${alloc.port}`
+    : `https://${subdomain}.flihost.site`;
   return {
     id: a.id,
     uuid: a.uuid,
@@ -779,7 +811,10 @@ function formatServer(s: any) {
     limits: a.limits,
     featureLimits: a.feature_limits,
     node: a.node,
-    allocation: a.relationships?.allocations?.data?.[0]?.attributes,
+    allocation: alloc,
+    subdomain,
+    appUrl,
+    subdomainUrl,
     createdAt: a.created_at,
     updatedAt: a.updated_at,
   };

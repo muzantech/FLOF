@@ -53,6 +53,9 @@ interface ServerInfo {
   suspended: boolean;
   limits: { memory: number; disk: number; cpu: number };
   allocation?: { ip: string; port: number };
+  appUrl?: string | null;
+  subdomainUrl?: string;
+  subdomain?: string;
 }
 
 interface FileEntry {
@@ -1223,6 +1226,40 @@ export default function ServerDetailPage() {
                 : <><Wrench className="w-3 h-3" /> Réparer le démarrage</>
               }
             </Button>
+          </div>
+        )}
+
+        {/* App URL banner — shown when server has a URL */}
+        {(server?.appUrl || server?.subdomainUrl) && (
+          <div className="flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-lg border border-zinc-800 bg-zinc-900/50">
+            <ExternalLink className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 flex-1 min-w-0">
+              {server.appUrl && (
+                <a
+                  href={server.appUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-mono text-yellow-300 hover:text-yellow-200 truncate underline underline-offset-2"
+                >
+                  {server.appUrl}
+                </a>
+              )}
+              {server.subdomainUrl && server.appUrl && (
+                <span className="text-xs text-zinc-700 hidden sm:inline">·</span>
+              )}
+              {server.subdomainUrl && (
+                <a
+                  href={server.subdomainUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-mono text-zinc-500 hover:text-zinc-300 truncate"
+                  title="URL sous-domaine (DNS wildcard *.flihost.site)"
+                >
+                  {server.subdomainUrl}
+                </a>
+              )}
+            </div>
+            <span className="text-xs text-zinc-600 hidden sm:inline flex-shrink-0">URL de l'app</span>
           </div>
         )}
 

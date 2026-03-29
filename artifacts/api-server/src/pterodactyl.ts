@@ -342,7 +342,7 @@ export async function getPteroServerByIdentifier(identifier: string): Promise<{ 
 }
 
 export async function listPteroServers(page = 1) {
-  return pteroAppRequest(`/servers?per_page=25&page=${page}`);
+  return pteroAppRequest(`/servers?per_page=25&page=${page}&include=allocations`);
 }
 
 export async function getPteroServer(serverId: number) {

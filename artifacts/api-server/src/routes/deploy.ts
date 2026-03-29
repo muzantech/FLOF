@@ -15,7 +15,14 @@ import path from "path";
 import os from "os";
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { uploadZipToPterodactyl, sendPowerAction, writeFileContents, purgeServerFiles, updateStartupVariable, getServerStats, updateServerEnvViaAppAPI, getPteroServerByIdentifier, buildNodeStartup, buildPythonStartup } from "../pterodactyl";
+import { uploadZipToPterodactyl, sendPowerAction, writeFileContents, purgeServerFiles, updateStartupVariable, getServerStats, updateServerEnvViaAppAPI, getPteroServerByIdentifier, getPteroServer, buildNodeStartup, buildPythonStartup } from "../pterodactyl";
+import { createSubdomainDNS } from "../cloudflare";
+
+const WEB_TECHS = new Set(["nodejs", "python", "php"]);
+
+function generateSubdomain(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").substring(0, 32) || "server";
+}
 
 // ————————————————————————————————————————————
 //  Helper: apply env updates via Application API (bypasses read-only vars),
@@ -446,9 +453,34 @@ async function runDeploy(
     const duration = Math.round((Date.now() - start) / 1000);
     await logDeploy(deploymentId, "success", `Déploiement terminé en ${duration}s !`);
 
+    // Auto-assign subdomain for web projects
+    let deployUrl: string | null = null;
+    if (WEB_TECHS.has(tech)) {
+      try {
+        const serverInfo = await getPteroServerByIdentifier(identifier);
+        if (serverInfo) {
+          const subdomain = generateSubdomain(serverInfo.name);
+          const full = await getPteroServer(serverInfo.id);
+          const port = full?.relationships?.allocations?.data?.[0]?.attributes?.port;
+          const ip = full?.relationships?.allocations?.data?.[0]?.attributes?.ip;
+          // Set SERVER_SUBDOMAIN env var
+          await updateServerEnvViaAppAPI(serverInfo.id, { SERVER_SUBDOMAIN: subdomain }).catch(() => {});
+          // Create Cloudflare DNS (no-op if wildcard already covers it)
+          await createSubdomainDNS(subdomain).catch(() => {});
+          deployUrl = port ? `http://${ip}:${port}` : null;
+          const subdomainUrl = port ? `http://${subdomain}.flihost.site:${port}` : `https://${subdomain}.flihost.site`;
+          if (deployUrl) {
+            await logDeploy(deploymentId, "info", `🌐 URL directe    : ${deployUrl}`);
+          }
+          await logDeploy(deploymentId, "info", `🔗 URL sous-domaine: ${subdomainUrl}`);
+        }
+      } catch { /* non-blocking */ }
+    }
+
     await db.update(deploymentsTable).set({
       status: "deployed",
       duration,
+      url: deployUrl,
       updatedAt: new Date(),
     }).where(eq(deploymentsTable.id, deploymentId));
 
