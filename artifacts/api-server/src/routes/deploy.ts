@@ -15,18 +15,21 @@ import path from "path";
 import os from "os";
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { uploadZipToPterodactyl, sendPowerAction, writeFileContents, purgeServerFiles, updateStartupVariable, getServerStats, updateServerEnvViaAppAPI, getPteroServerByIdentifier } from "../pterodactyl";
+import { uploadZipToPterodactyl, sendPowerAction, writeFileContents, purgeServerFiles, updateStartupVariable, getServerStats, updateServerEnvViaAppAPI, getPteroServerByIdentifier, buildNodeStartup, buildPythonStartup } from "../pterodactyl";
 
 // ————————————————————————————————————————————
 //  Helper: apply env updates via Application API (bypasses read-only vars),
 //  falls back to client API per-variable.
+//  Automatically passes STARTUP as the startup command override if present in updates.
 // ————————————————————————————————————————————
 async function applyEnvUpdates(identifier: string, envUpdates: Record<string, string>): Promise<void> {
   if (Object.keys(envUpdates).length === 0) return;
+  // Extract STARTUP command override if set (used as both startup template and env var)
+  const startupCmdOverride = envUpdates["STARTUP"];
   try {
     const serverInfo = await getPteroServerByIdentifier(identifier);
     if (serverInfo) {
-      await updateServerEnvViaAppAPI(serverInfo.id, envUpdates);
+      await updateServerEnvViaAppAPI(serverInfo.id, envUpdates, startupCmdOverride);
       return;
     }
   } catch {
@@ -547,6 +550,12 @@ function analyzeNodeProject(srcDir: string): ProjectAnalysis {
 
   pteroEnvUpdates["MAIN_FILE"] = mainFile;
   pteroEnvUpdates["USER_UPLOAD"] = "1";
+  pteroEnvUpdates["NODE_ARGS"] = "";   // Clear any invalid flags (e.g. pm2 flags)
+
+  // Build the STARTUP env var — this egg uses STARTUP as the full startup command
+  const nodeStartupCmd = buildNodeStartup(mainFile);
+  pteroEnvUpdates["STARTUP"] = nodeStartupCmd;
+  fixes.push(`STARTUP configuré → node "/home/container/${mainFile}"`);
 
   // TypeScript ?
   const isTs = mainFile.endsWith(".ts");

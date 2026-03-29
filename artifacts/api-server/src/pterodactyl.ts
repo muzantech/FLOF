@@ -353,10 +353,15 @@ export async function getPteroServer(serverId: number) {
  * Update server startup environment variables via the APPLICATION API (admin).
  * This bypasses read-only restrictions on the client API.
  * It GETs the current server config, merges the new env vars, then PATCHes startup.
+ *
+ * IMPORTANT: For eggs that use a `STARTUP` env var as the startup command (common pattern),
+ * you MUST include `STARTUP` in envUpdates with the correct command, AND pass
+ * startupCommand so the API startup field is also updated.
  */
 export async function updateServerEnvViaAppAPI(
   serverId: number,
-  envUpdates: Record<string, string>
+  envUpdates: Record<string, string>,
+  startupCommand?: string
 ): Promise<{ applied: string[] }> {
   // GET current server config
   const serverData = await pteroAppRequest(`/servers/${serverId}`);
@@ -369,9 +374,12 @@ export async function updateServerEnvViaAppAPI(
     mergedEnv[k] = v;
   }
 
-  // PATCH startup config with updated env
+  // Use provided startupCommand override, or fall back to current startup_command
+  const startup = startupCommand ?? attrs.container?.startup_command ?? "";
+
+  // PATCH startup config with updated env + startup command
   const patchBody = {
-    startup: attrs.container?.startup_command ?? "",
+    startup,
     environment: mergedEnv,
     egg: attrs.egg,
     image: attrs.container?.image ?? "",
@@ -395,6 +403,16 @@ export async function updateServerEnvViaAppAPI(
 
   const applied = Object.entries(envUpdates).map(([k, v]) => `${k} = ${JSON.stringify(v)}`);
   return { applied };
+}
+
+/** Build the correct Node.js startup command for a Pterodactyl Node egg */
+export function buildNodeStartup(mainFile: string): string {
+  return `if [ -f /home/container/package.json ]; then /usr/local/bin/npm install --prefer-offline --no-audit --no-fund --maxsockets 2 2>&1 || true; fi; /usr/local/bin/node "/home/container/${mainFile}"`;
+}
+
+/** Build the correct Python startup command for a Pterodactyl Python egg */
+export function buildPythonStartup(pyFile: string): string {
+  return `if [ -f /home/container/requirements.txt ]; then pip install -r /home/container/requirements.txt; fi; /usr/local/bin/python3 "/home/container/${pyFile}"`;
 }
 
 export async function listClientServers() {

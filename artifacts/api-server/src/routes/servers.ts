@@ -27,6 +27,8 @@ import {
   getServerStartup,
   updateStartupVariable,
   updateServerEnvViaAppAPI,
+  buildNodeStartup,
+  buildPythonStartup,
 } from "../pterodactyl";
 
 const router: IRouter = Router();
@@ -663,11 +665,13 @@ router.post("/servers/:identifier/fix-startup", requireAuth, async (req: AuthReq
 
       updates["MAIN_FILE"] = mainFile;
       updates["USER_UPLOAD"] = "1";
-
-      // CRITICAL: Clear NODE_ARGS — pm2 flags like --deep-monitoring --attach --name
-      // are passed as NODE_ARGS and break the `node ${NODE_ARGS} ${MAIN_FILE}` template
       updates["NODE_ARGS"] = "";
       fixes.push(`NODE_ARGS vidé (suppression des flags pm2 invalides)`);
+
+      // CRITICAL: Build correct STARTUP command — this egg uses STARTUP env var as the full command
+      const startupCmd = buildNodeStartup(mainFile);
+      updates["STARTUP"] = startupCmd;
+      fixes.push(`STARTUP mis à jour → node "/home/container/${mainFile}"`);
 
     } else if (files.includes("requirements.txt") || files.some(f => f.endsWith(".py"))) {
       // ── Python ─────────────────────────────────────────────────────────
@@ -689,6 +693,9 @@ router.post("/servers/:identifier/fix-startup", requireAuth, async (req: AuthReq
 
       updates["PY_FILE"] = pyFile;
       updates["REQUIREMENTS_FILE"] = "requirements.txt";
+      const pyStartupCmd = buildPythonStartup(pyFile);
+      updates["STARTUP"] = pyStartupCmd;
+      fixes.push(`STARTUP mis à jour → python3 "/home/container/${pyFile}"`);
 
       if (isDjango && files.includes("manage.py")) {
         fixes.push(`Django détecté`);
@@ -728,9 +735,11 @@ router.post("/servers/:identifier/fix-startup", requireAuth, async (req: AuthReq
     }
 
     // 3 — Force-apply env updates via APPLICATION API (overrides read-only restrictions)
+    // Pass STARTUP as the startup command override so both the startup template and env var are updated
+    const startupCmdOverride = updates["STARTUP"];
     let applied: string[] = [];
     try {
-      const result = await updateServerEnvViaAppAPI(serverInfo.id, updates);
+      const result = await updateServerEnvViaAppAPI(serverInfo.id, updates, startupCmdOverride);
       applied = result.applied;
       fixes.push(`Variables mises à jour via l'API admin (bypasse lecture seule)`);
     } catch (appErr: any) {

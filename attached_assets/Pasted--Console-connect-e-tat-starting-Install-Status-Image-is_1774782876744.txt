@@ -1,0 +1,58 @@
+✓ Console connectée
+● État: starting
+[Install] Status: Image is up to date for ghcr.io/parkervcp/yolks:nodejs_24 
+[Install] Digest: sha256:79b8061c367448b9c153f6c5cce1f72aac9fc86fcd12a378f82b4a6a4e1e1d6e 
+[Pterodactyl Daemon]: Finished pulling Docker container image
+v24.14.0
+:/home/container$ if [ -f /home/container/package.json ]; then /usr/local/bin/npm install --prefer-offline --no-audit --no-fund --maxsockets 2 2>&1 || true; fi; /usr/local/bin/node --deep-monitoring --attach --name "/home/container/pm2"
+\|/-\|/
+up to date in 4s
+//usr/local/bin/node: bad option: --deep-monitoring
+/usr/local/bin/node: bad option: --attach
+/usr/local/bin/node: bad option: --name
+● État: offline
+[Pterodactyl Daemon]: ---------- Detected server process in a crashed state! ----------
+[Pterodactyl Daemon]: Exit code: 9
+[Pterodactyl Daemon]: Out of memory: false
+[Pterodactyl Daemon]: Checking server disk space usage, this could take a few seconds...
+[Pterodactyl Daemon]: Updating process configuration files...
+[Pterodactyl Daemon]: Ensuring file permissions are set correctly, this could take a few seconds...
+● État: starting
+[Pterodactyl Daemon]: Pulling Docker container image, this could take a few minutes to complete...
+[Install] Pulling from parkervcp/yolks 
+[Install] Status: Image is up to date for ghcr.io/parkervcp/yolks:nodejs_24 
+[Install] Digest: sha256:79b8061c367448b9c153f6c5cce1f72aac9fc86fcd12a378f82b4a6a4e1e1d6e 
+[Pterodactyl Daemon]: Finished pulling Docker container image
+v24.14.0
+:/home/container$ if [ -f /home/container/package.json ]; then /usr/local/bin/npm install --prefer-offline --no-audit --no-fund --maxsockets 2 2>&1 || true; fi; /usr/local/bin/node --deep-monitoring --attach --name "/home/container/pm2"
+\|/-\
+up to date in 4s
+\/usr/local/bin/node: bad option: --deep-monitoring
+/usr/local/bin/node: bad option: --attach
+/usr/local/bin/node: bad option: --name
+● État: offline
+[Pterodactyl Daemon]: ---------- Detected server process in a crashed state! ----------
+[Pterodactyl Daemon]: Exit code: 9
+[Pterodactyl Daemon]: Out of memory: false
+[Pterodactyl Daemon]: Aborting automatic restart, last crash occurred less than 60 seconds ago.
+[Pterodactyl Daemon]: Checking server disk space usage, this could take a few seconds...
+[Pterodactyl Daemon]: Updating process configuration files...
+[Pterodactyl Daemon]: Ensuring file permissions are set correctly, this could take a few seconds...
+● État: starting
+[Pterodactyl Daemon]: Pulling Docker container image, this could take a few minutes to complete...
+[Install] Pulling from parkervcp/yolks 
+[Install] Status: Image is up to date for ghcr.io/parkervcp/yolks:nodejs_24 
+[Install] Digest: sha256:79b8061c367448b9c153f6c5cce1f72aac9fc86fcd12a378f82b4a6a4e1e1d6e 
+[Pterodactyl Daemon]: Finished pulling Docker container image
+v24.14.0
+:/home/container$ if [ -f /home/container/package.json ]; then /usr/local/bin/npm install --prefer-offline --no-audit --no-fund --maxsockets 2 2>&1 || true; fi; /usr/local/bin/node --deep-monitoring --attach --name "/home/container/pm2"
+\|/-\|
+up to date in 4s
+|/usr/local/bin/node: bad option: --deep-monitoring
+/usr/local/bin/node: bad option: --attach
+/usr/local/bin/node: bad option: --name
+● État: offline
+[Pterodactyl Daemon]: ---------- Detected server process in a crashed state! ----------
+[Pterodactyl Daemon]: Exit code: 9
+[Pterodactyl Daemon]: Out of memory: false
+[Pterodactyl Daemon]: Aborting automatic restart, last crash occurred less than 60 seconds ago.
