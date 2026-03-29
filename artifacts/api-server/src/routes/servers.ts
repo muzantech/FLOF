@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
-import { db, usersTable, coinTransactionsTable } from "@workspace/db";
+import { db, usersTable, coinTransactionsTable, deploymentsTable, deploymentLogsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import {
   EGG_CONFIGS,
@@ -573,6 +573,24 @@ router.get("/servers/:identifier/metrics", requireAuth, async (req: AuthRequest,
       .orderBy(descOrd(serverMetricsTable.recordedAt))
       .limit(288); // 24h at 5-min intervals
     res.json({ metrics });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/servers/:identifier/deployments ──────────────────────────────
+router.get("/servers/:identifier/deployments", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const { desc: descOrd } = await import("drizzle-orm");
+    const identifier = req.params.identifier;
+    const limit = Math.min(parseInt(req.query.limit as string || "20", 10), 100);
+
+    const deployments = await db.select().from(deploymentsTable)
+      .where(eq(deploymentsTable.serverId, identifier))
+      .orderBy(descOrd(deploymentsTable.createdAt))
+      .limit(limit);
+
+    res.json({ deployments, total: deployments.length });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
