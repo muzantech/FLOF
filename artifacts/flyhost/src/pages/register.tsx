@@ -51,10 +51,10 @@ export default function RegisterPage() {
       await register(data as any);
       toast({
         title: "Compte créé ! 🎉",
-        description: "Bienvenue sur FlyHost ! Vous recevez 10 coins de bienvenue.",
-        duration: 5000,
+        description: "Vérifiez votre email pour activer votre compte.",
+        duration: 6000,
       });
-      setLocation("/onboarding");
+      setLocation("/verify-email");
     } catch (error: any) {
       toast({
         variant: "destructive",

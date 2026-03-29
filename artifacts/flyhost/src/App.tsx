@@ -41,21 +41,30 @@ const queryClient = new QueryClient({
   },
 });
 
-// Protected Route Wrapper
+const Spinner = () => (
+  <div className="min-h-screen bg-black flex items-center justify-center">
+    <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
+  </div>
+);
+
+// Protected Route — requires login + email verified
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    );
-  }
+  if (isLoading) return <Spinner />;
+  if (!user) return <Redirect to="/login" />;
+  if (!user.emailVerified) return <Redirect to="/verify-email" />;
 
-  if (!user) {
-    return <Redirect to="/login" />;
-  }
+  return <Component />;
+}
+
+// Requires login only (for verify-email page itself — no email check to avoid loop)
+function LoginOnlyRoute({ component: Component }: { component: React.ComponentType }) {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) return <Spinner />;
+  if (!user) return <Redirect to="/login" />;
+  if (user.emailVerified) return <Redirect to="/dashboard" />;
 
   return <Component />;
 }
@@ -65,8 +74,9 @@ function AuthRoute({ component: Component }: { component: React.ComponentType })
   const { user, isLoading } = useAuth();
 
   if (isLoading) return null;
-  
+
   if (user) {
+    if (!user.emailVerified) return <Redirect to="/verify-email" />;
     return <Redirect to="/dashboard" />;
   }
 
@@ -100,8 +110,8 @@ function Router() {
       <Route path="/servers"><ProtectedRoute component={ServersPage} /></Route>
       <Route path="/servers/:identifier"><ProtectedRoute component={ServerDetailPage} /></Route>
       
-      {/* Auth utility routes (public) */}
-      <Route path="/verify-email"><ProtectedRoute component={VerifyEmailPage} /></Route>
+      {/* Auth utility routes */}
+      <Route path="/verify-email"><LoginOnlyRoute component={VerifyEmailPage} /></Route>
       <Route path="/forgot-password" component={ForgotPasswordPage} />
 
       {/* Public Routes */}
