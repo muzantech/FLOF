@@ -17,6 +17,7 @@ import marketplaceRouter from "./marketplace";
 import resellerRouter from "./reseller";
 import apikeysRouter from "./apikeys";
 import schedulesRouter from "./schedules";
+import proxyRouter from "./proxy";
 
 const router: IRouter = Router();
 
@@ -38,5 +39,6 @@ router.use(marketplaceRouter);
 router.use(resellerRouter);
 router.use(apikeysRouter);
 router.use(schedulesRouter);
+router.use(proxyRouter);
 
 export default router;
