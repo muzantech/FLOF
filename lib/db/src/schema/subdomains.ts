@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -10,6 +10,8 @@ export const serverSubdomainsTable = pgTable("server_subdomains", {
   port: integer("port").notNull(),
   ip: text("ip").notNull().default("127.0.0.1"),
   userId: integer("user_id").references(() => usersTable.id),
+  isTrial: boolean("is_trial").notNull().default(false),
+  trialExpiresAt: timestamp("trial_expires_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

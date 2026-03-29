@@ -402,14 +402,21 @@ export default function ServersPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [searchFilter, setSearchFilter] = useState<string>("");
 
+  // Free trial
+  const [trialStatus, setTrialStatus] = useState<{ freeTrialUsed: boolean; trialActive: boolean; trialExpiresAt: string | null } | null>(null);
+  const [showTrialCreate, setShowTrialCreate] = useState(false);
+  const [trialName, setTrialName] = useState("");
+  const [creatingTrial, setCreatingTrial] = useState(false);
+
   const coins = (user as any)?.coins ?? 0;
 
   async function load() {
     setLoading(true);
     try {
-      const [sRes, pRes] = await Promise.all([
+      const [sRes, pRes, tRes] = await Promise.all([
         fetch("/api/servers"),
         fetch("/api/servers/plans"),
+        fetch("/api/servers/free-trial/status"),
       ]);
       if (sRes.ok) {
         const d = await sRes.json();
@@ -422,10 +429,46 @@ export default function ServersPage() {
         const d = await pRes.json();
         setPlans(d.plans || []);
       }
+      if (tRes.ok) {
+        setTrialStatus(await tRes.json());
+      }
     } catch (e: any) {
       toast({ variant: "destructive", title: "Erreur réseau", description: e.message });
     }
     setLoading(false);
+  }
+
+  async function createTrialServer() {
+    const cleaned = trialName.trim().replace(/[^a-zA-Z0-9\-_ ]/g, "") || `essai-${(user as any)?.username || "user"}`;
+    setCreatingTrial(true);
+    try {
+      const res = await fetch("/api/servers/free-trial", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: cleaned }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ variant: "destructive", title: "Erreur", description: data.error });
+      } else {
+        toast({ title: "Serveur d'essai créé ! 🎉", description: "Il sera supprimé automatiquement dans 24H." });
+        setShowTrialCreate(false);
+        setTrialName("");
+        await load();
+        await refreshUser();
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Erreur réseau", description: e.message });
+    }
+    setCreatingTrial(false);
+  }
+
+  function formatCountdown(expiresAt: string) {
+    const diff = new Date(expiresAt).getTime() - Date.now();
+    if (diff <= 0) return "Expiré";
+    const h = Math.floor(diff / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    return `${h}h ${m}m restantes`;
   }
 
   useEffect(() => { load(); }, []);
@@ -569,6 +612,73 @@ export default function ServersPage() {
             </div>
           ))}
         </div>
+
+        {/* ── Free Trial Banner ── */}
+        {trialStatus && !trialStatus.freeTrialUsed && (
+          <div className="rounded-2xl border border-emerald-500/30 bg-gradient-to-br from-emerald-950/60 via-zinc-900/80 to-zinc-900/60 p-5">
+            {showTrialCreate ? (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">🚀</span>
+                  <p className="font-bold text-white text-sm">Nommez votre serveur d'essai</p>
+                </div>
+                <input
+                  value={trialName}
+                  onChange={e => setTrialName(e.target.value)}
+                  placeholder={`essai-${(user as any)?.username || "server"}`}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:border-emerald-400/50 focus:outline-none"
+                  onKeyDown={e => e.key === "Enter" && createTrialServer()}
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <Button
+                    className="flex-1 bg-emerald-500 text-white hover:bg-emerald-400 font-semibold text-sm gap-2"
+                    onClick={createTrialServer}
+                    disabled={creatingTrial}
+                  >
+                    {creatingTrial ? <Loader2 className="w-4 h-4 animate-spin" /> : "Créer mon serveur gratuit"}
+                  </Button>
+                  <Button variant="ghost" className="text-zinc-500" onClick={() => setShowTrialCreate(false)}>
+                    Annuler
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center flex-shrink-0 text-lg">
+                    🎁
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <p className="font-bold text-white text-sm">Serveur d'essai gratuit — 24H</p>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/20">GRATUIT</span>
+                    </div>
+                    <p className="text-xs text-zinc-400">
+                      Testez FlyHost avec un serveur Node.js gratuit. Valeur : <span className="text-yellow-400 font-semibold">50 coins</span>. Supprimé automatiquement après 24H.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  className="bg-emerald-500 text-white hover:bg-emerald-400 font-semibold text-sm gap-2 flex-shrink-0"
+                  onClick={() => setShowTrialCreate(true)}
+                >
+                  <Zap className="w-4 h-4" /> Activer l'essai
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {trialStatus?.trialActive && trialStatus.trialExpiresAt && (
+          <div className="flex items-center gap-3 p-4 rounded-xl border border-blue-500/20 bg-blue-500/5">
+            <Clock className="w-4 h-4 text-blue-400 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-white">Serveur d'essai actif</p>
+              <p className="text-xs text-zinc-400">{formatCountdown(trialStatus.trialExpiresAt)} — suppression automatique à l'expiration</p>
+            </div>
+          </div>
+        )}
 
         {/* Panel link */}
         <div className="flex items-center gap-3 p-4 rounded-xl border border-yellow-400/15 bg-yellow-400/3">

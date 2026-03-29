@@ -1,6 +1,6 @@
-import { db, usersTable, coinTransactionsTable } from "@workspace/db";
+import { db, usersTable, coinTransactionsTable, serverSubdomainsTable } from "@workspace/db";
 import { notificationsTable, serverMetricsTable, restartSchedulesTable } from "@workspace/db";
-import { eq, lt, sql, and, isNull, or } from "drizzle-orm";
+import { eq, lt, sql, and, isNull, or, lte } from "drizzle-orm";
 import { deploymentsTable } from "@workspace/db";
 import { sendEmail, emailTemplates, sendDiscordWebhook, sendTelegram } from "./mailer";
 import { createNotification } from "./routes/notifications";
@@ -185,6 +185,75 @@ function shouldRunSchedule(
   return true;
 }
 
+// ─── Clean up expired free trial servers ──────────────────────────────────────
+export async function cleanupExpiredTrials() {
+  log("Checking for expired trial servers...");
+  try {
+    const now = new Date();
+    const expired = await db.select().from(serverSubdomainsTable)
+      .where(and(
+        eq(serverSubdomainsTable.isTrial, true),
+        lte(serverSubdomainsTable.trialExpiresAt, now)
+      ));
+
+    if (expired.length === 0) {
+      log("No expired trial servers found.");
+      return;
+    }
+
+    for (const trial of expired) {
+      try {
+        log(`Deleting expired trial server: ${trial.pterodactylIdentifier}`);
+
+        // 1. Supprimer de Pterodactyl
+        await deletePteroServer(trial.pterodactylIdentifier).catch(e =>
+          log(`  Warning: Ptero delete failed for ${trial.pterodactylIdentifier}: ${e.message}`)
+        );
+
+        // 2. Supprimer de la DB
+        await db.delete(serverSubdomainsTable).where(eq(serverSubdomainsTable.id, trial.id));
+
+        // 3. Notifier l'utilisateur par email
+        if (trial.userId) {
+          const [user] = await db.select({ email: usersTable.email, name: usersTable.name, username: usersTable.username })
+            .from(usersTable).where(eq(usersTable.id, trial.userId)).limit(1);
+          if (user) {
+            const displayName = user.name || user.username || "utilisateur";
+            await sendEmail(user.email, "⏱️ Votre serveur d'essai FlyHost a expiré", `
+              <div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#09090B;color:#FAFAFA;padding:32px;border-radius:16px">
+                <div style="font-size:28px;font-weight:800;margin-bottom:24px;color:#FACC15">FlyHost</div>
+                <h2 style="color:#FAFAFA;margin-bottom:8px">Votre essai gratuit est terminé</h2>
+                <p style="color:#A1A1AA;margin-bottom:16px">
+                  Bonjour <strong style="color:#FAFAFA">${displayName}</strong>,
+                </p>
+                <p style="color:#A1A1AA;margin-bottom:16px">
+                  Votre serveur d'essai gratuit de <strong style="color:#FACC15">24H</strong> vient d'expirer et a été supprimé automatiquement.
+                </p>
+                <p style="color:#A1A1AA;margin-bottom:24px">
+                  Pour continuer à héberger vos projets, rechargez vos coins et créez un serveur permanent.
+                </p>
+                <a href="https://flihost.site/servers" 
+                   style="display:inline-block;padding:14px 28px;background:#FACC15;color:#09090B;text-decoration:none;border-radius:8px;font-weight:700;font-size:16px">
+                  Créer un serveur
+                </a>
+                <p style="color:#52525B;font-size:12px;margin-top:24px">flihost.site</p>
+              </div>
+            `).catch(() => {});
+          }
+        }
+
+        log(`  ✓ Trial server ${trial.pterodactylIdentifier} deleted`);
+      } catch (e: any) {
+        log(`  Error deleting trial ${trial.pterodactylIdentifier}: ${e.message}`);
+      }
+    }
+
+    log(`Cleanup done: ${expired.length} trial server(s) deleted.`);
+  } catch (e: any) {
+    log(`Cleanup trials error: ${e.message}`);
+  }
+}
+
 // ─── Start all crons ──────────────────────────────────────────────────────────
 export function startCronJobs() {
   log("Starting cron jobs...");
@@ -192,12 +261,13 @@ export function startCronJobs() {
   // Every 5 minutes: collect metrics
   setInterval(collectMetrics, 5 * 60 * 1000);
 
-  // Every hour: fix stuck builds + cleanup tmp
+  // Every hour: fix stuck builds + cleanup tmp + clean expired trials
   setInterval(() => {
     fixStuckBuilds();
     cleanupTmpDirs();
     processAutoRenewals();
     sendExpirationAlerts();
+    cleanupExpiredTrials();
   }, 60 * 60 * 1000);
 
   // Every minute: restart schedules

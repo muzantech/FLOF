@@ -206,6 +206,93 @@ router.post("/servers", requireAuth, async (req: AuthRequest, res): Promise<void
   }
 });
 
+// POST /api/servers/free-trial — créer un serveur d'essai gratuit 24H
+router.post("/servers/free-trial", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+    if (!user) { res.status(404).json({ error: "Utilisateur introuvable" }); return; }
+
+    if (user.freeTrialUsed) {
+      res.status(403).json({ error: "Vous avez déjà utilisé votre serveur d'essai gratuit." });
+      return;
+    }
+
+    const { name } = req.body;
+    const serverName = (name || `essai-${user.username}`).trim().replace(/[^a-zA-Z0-9\-_ ]/g, "").slice(0, 30) || `essai-${user.id}`;
+
+    // Créer l'utilisateur Pterodactyl si nécessaire
+    const pteroUser = await getOrCreatePteroUser(user.email, user.id, user.name || user.username || "FlyHost User");
+    const pteroUserId = pteroUser.attributes.id;
+
+    // Créer le serveur Node.js (50 coins normalement, gratuit ici)
+    const serverData = await createPteroServer({
+      name: `${serverName} [TRIAL-${user.id}]`,
+      ownerId: pteroUserId,
+      gameType: "nodejs",
+    });
+
+    const identifier = serverData.attributes.identifier;
+    const trialExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // +24H
+
+    // Marquer l'essai comme utilisé
+    await db.update(usersTable)
+      .set({ freeTrialUsed: true })
+      .where(eq(usersTable.id, req.userId!));
+
+    // Enregistrer dans server_subdomains pour le cron de suppression
+    await db.insert(serverSubdomainsTable).values({
+      subdomain: `trial-${identifier}`,
+      pterodactylIdentifier: identifier,
+      port: serverData.attributes.allocation?.attributes?.port || 3000,
+      ip: serverData.attributes.allocation?.attributes?.ip || "127.0.0.1",
+      userId: req.userId!,
+      isTrial: true,
+      trialExpiresAt,
+    }).onConflictDoNothing();
+
+    // Transaction (0 coins déduits — essai gratuit)
+    await db.insert(coinTransactionsTable).values({
+      userId: req.userId!,
+      type: "debit",
+      category: "server_creation",
+      amount: 0,
+      description: `Serveur d'essai gratuit 24H: ${serverName}`,
+      reference: `trial_${serverData.attributes.id}`,
+    });
+
+    res.status(201).json({
+      server: formatServer(serverData),
+      trialExpiresAt,
+      message: "Serveur d'essai créé ! Il sera supprimé automatiquement dans 24H.",
+    });
+  } catch (err: any) {
+    console.error("Free trial server error:", err);
+    res.status(500).json({ error: err.message || "Erreur création serveur d'essai" });
+  }
+});
+
+// GET /api/servers/free-trial/status — vérifier si l'essai a été utilisé
+router.get("/servers/free-trial/status", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const [user] = await db.select({ freeTrialUsed: usersTable.freeTrialUsed }).from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+  // Vérifier si un serveur trial est encore actif
+  const [trialServer] = await db.select({
+    pterodactylIdentifier: serverSubdomainsTable.pterodactylIdentifier,
+    trialExpiresAt: serverSubdomainsTable.trialExpiresAt,
+  }).from(serverSubdomainsTable)
+    .where(eq(serverSubdomainsTable.userId, req.userId!))
+    .limit(1);
+
+  const trialActive = trialServer?.trialExpiresAt && new Date(trialServer.trialExpiresAt) > new Date();
+
+  res.json({
+    freeTrialUsed: user.freeTrialUsed,
+    trialActive: !!trialActive,
+    trialExpiresAt: trialServer?.trialExpiresAt || null,
+  });
+});
+
 // GET /api/servers/:id — get server details
 router.get("/servers/:id", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   try {

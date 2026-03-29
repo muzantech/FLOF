@@ -29,6 +29,7 @@ export const usersTable = pgTable("users", {
   telegramChatId: text("telegram_chat_id"),
   discordWebhook: text("discord_webhook"),
   banned: boolean("banned").notNull().default(false),
+  freeTrialUsed: boolean("free_trial_used").notNull().default(false),
   isReseller: boolean("is_reseller").notNull().default(false),
   plan: text("plan").notNull().default("free"), // free | starter | pro | business | unlimited
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
