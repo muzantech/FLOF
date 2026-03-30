@@ -39,6 +39,15 @@ Internet
 |-----------|-----------|------|------|
 | flyhost (proxy) | b9ce2f9c | 3000 | proxy.js — routing principal |
 | flyhost-api | dfc2746a | 3009 | API Express (production) |
+| flyhost-postgres | 10638e67 | 3010 | PostgreSQL 18.3 (production DB) |
+
+**Base de données de production** :
+- PostgreSQL 18.3 hébergé dans le container `flyhost-postgres` (10638e67)
+- `DATABASE_URL=postgresql://flyhost:flyhost_prod_2026@173.212.226.118:3010/flyhost`
+- Le deploy script utilise `PROD_DATABASE_URL` (secret Replit) ou construit l'URL depuis `SERVER_IP`
+- Le cluster PostgreSQL utilise `LD_PRELOAD=/home/container/uid-fix.so` pour contourner l'absence de UID 999 dans `/etc/passwd`
+- Heartbeat toutes les 30s avec redémarrage automatique si PG ne répond plus
+- **NE PAS modifier le container 10638e67 sans backup** — toutes les données prod sont là
 
 **CRITIQUE dans proxy.js** :
 - `handleRequest` est NOT async — ne jamais utiliser `await` dedans, utiliser `.then()` chains

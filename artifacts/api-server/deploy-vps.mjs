@@ -127,7 +127,7 @@ const envVars = [
   ["NODE_ENV",                  "production"],
   ["APP_URL",                   "https://flihost.site"],
   ["SESSION_SECRET",            process.env.SESSION_SECRET         || ""],
-  ["DATABASE_URL",              process.env.DATABASE_URL           || ""],
+  ["DATABASE_URL",              process.env.PROD_DATABASE_URL || `postgresql://flyhost:flyhost_prod_2026@${process.env.SERVER_IP}:3010/flyhost`],
   ["PTERODACTYL_URL",           process.env.PTERODACTYL_URL        || ""],
   ["PTERODACTYL_APPLICATION_KEY", process.env.PTERODACTYL_APPLICATION_KEY || ""],
   ["PTERODACTYL_CLIENT_KEY",    process.env.PTERODACTYL_CLIENT_KEY || ""],

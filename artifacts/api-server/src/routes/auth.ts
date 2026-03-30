@@ -126,9 +126,8 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     const token = generateToken(user.id);
     res.json({ token, user: publicUser(user) });
   } catch (err: any) {
-    const cause = err?.cause?.message || err?.cause?.code || "";
-    console.error("[auth/login] Error:", err?.message, "| Cause:", cause, err?.stack);
-    res.status(500).json({ error: err?.message || "Internal server error", cause });
+    console.error("[auth/login] Error:", err?.message, "| Cause:", err?.cause?.message || "");
+    res.status(500).json({ error: "Erreur interne du serveur" });
   }
 });
 
