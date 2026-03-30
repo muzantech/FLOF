@@ -3,7 +3,7 @@
 ## Vue d'ensemble
 
 FlyHost est une plateforme d'hébergement cloud full-stack (clone de Vercel) ciblant l'Afrique francophone.  
-Monorepo pnpm avec TypeScript. Frontend servi depuis un serveur Pterodactyl (b9ce2f9c) sur flihost.site, API sur Replit.
+Monorepo pnpm avec TypeScript. Frontend + API déployés sur le VPS via containers Pterodactyl. Replit est uniquement utilisé pour le développement — la production est 100% indépendante de Replit.
 
 ## Stack
 
@@ -26,17 +26,25 @@ Monorepo pnpm avec TypeScript. Frontend servi depuis un serveur Pterodactyl (b9c
 ```
 Internet
   └── Cloudflare (*.flihost.site proxied → 173.212.226.118)
-        └── proxy.js sur VPS (port 3000)
+        └── proxy.js sur VPS — container b9ce2f9c (port 3000)
               ├── flihost.site           → /public/ (fichiers React buildés)
               ├── /api/payment/mf-relay  → relay MoneyFusion (IP VPS whitelistée)
-              ├── /api/*                 → Replit API server (Express)
-              └── *.flihost.site         → containers Pterodactyl
+              ├── /api/*                 → container flyhost-api dfc2746a (port 3009)
+              └── *.flihost.site         → containers Pterodactyl utilisateurs
 ```
+
+**Containers Pterodactyl sur le VPS (173.212.226.118)** :
+
+| Container | Identifier | Port | Rôle |
+|-----------|-----------|------|------|
+| flyhost (proxy) | b9ce2f9c | 3000 | proxy.js — routing principal |
+| flyhost-api | dfc2746a | 3009 | API Express (production) |
 
 **CRITIQUE dans proxy.js** :
 - `handleRequest` est NOT async — ne jamais utiliser `await` dedans, utiliser `.then()` chains
 - Port 3000 = proxy subdomain — NE PAS tuer
 - La route mf-relay est async car dans une fonction séparée
+- `API_URL` parsé via `new URL()` pour extraire host et port correctement
 
 ## Flux de paiement MoneyFusion
 
@@ -71,14 +79,27 @@ User → Frontend → POST /api/payment/initiate ou /subscription (avec phone)
 
 ## Commandes de déploiement
 
+### Déployer l'API en production (VPS)
 ```bash
-# Build frontend
+# Une seule commande — build + zip + upload + restart + vérification (~45s)
+pnpm --filter @workspace/api-server run deploy
+
+# Script : artifacts/api-server/deploy-vps.mjs
+# Container cible : dfc2746a (flyhost-api, port 3009)
+```
+
+### Déployer le frontend en production (VPS)
+```bash
+# Build du frontend
 PORT=3001 BASE_PATH="/" pnpm --filter @workspace/flyhost run build
 
-# Deploy vers VPS (Pterodactyl container b9ce2f9c)
+# Deploy vers VPS (Pterodactyl container b9ce2f9c — fichiers dans /public/)
+# Header X-Requested-With: XMLHttpRequest — CRITIQUE pour Wings API writes
 node /tmp/deploy-final.mjs
-# Utilise header X-Requested-With: XMLHttpRequest — CRITIQUE pour Wings API writes
+```
 
+### Autres commandes utiles
+```bash
 # Push base de données
 pnpm --filter @workspace/db run push-force
 
@@ -234,9 +255,11 @@ git push https://${GITHUB_PERSONAL_ACCESS_TOKEN}@github.com/muzantech/FLOF.git m
 - **Admin** : admin@flyhost.site / jarix66 (role=admin, coins illimités)
 - **VPS IP** : 173.212.226.118 (whitelistée dans MoneyFusion)
 - **Pterodactyl Panel** : https://panel.lionelmelo.qzz.io
-- **Proxy serveur** : Pterodactyl container b9ce2f9c
+- **Container proxy** : b9ce2f9c (port 3000) — proxy.js, frontend statique
+- **Container API prod** : dfc2746a (port 3009) — flyhost-api, API Express
 - **MF_RELAY_SECRET** : flyhost-mf-relay-2026-secret
 - **Notification helper** : `createNotification(userId, type, title, message, metadata)` dans `notifications.ts`
+- **Replit utilisé pour** : développement uniquement — prod 100% sur VPS
 
 ## Architecture Proxy Subdomain
 
