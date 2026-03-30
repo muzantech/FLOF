@@ -118,7 +118,8 @@ function Router() {
       <Route path="/verify-email"><LoginOnlyRoute component={VerifyEmailPage} /></Route>
       <Route path="/forgot-password" component={ForgotPasswordPage} />
 
-      {/* Payment Routes */}
+      {/* Payment Routes — /callback matches MoneyFusion configured redirect URL */}
+      <Route path="/callback"><ProtectedRoute component={PaymentCallbackPage} /></Route>
       <Route path="/payment/callback"><ProtectedRoute component={PaymentCallbackPage} /></Route>
 
       {/* Public Routes */}
