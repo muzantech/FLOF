@@ -132,7 +132,10 @@ export default function DeployPage() {
     setTimeout(() => setToast(null), 4000);
   }
 
-  const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
+  interface AiEnvSuggestion { key: string; placeholder: string; description: string; required: boolean; }
+  interface AiConfigResult { startCommand: string; envVars: AiEnvSuggestion[]; tip: string; }
+
+  const [aiConfig, setAiConfig] = useState<AiConfigResult | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiDeployAnalysis, setAiDeployAnalysis] = useState<string | null>(null);
   const [aiDeployLoading, setAiDeployLoading] = useState(false);
@@ -140,18 +143,49 @@ export default function DeployPage() {
   async function getAiConfigSuggestion() {
     if (!selectedServer) return;
     setAiLoading(true);
-    setAiSuggestion(null);
+    setAiConfig(null);
     try {
       const type = guessType(selectedServer);
       const src = method === "github" ? `dépôt GitHub: ${gitUrl || "non spécifié"}` : "fichier ZIP uploadé";
-      const prompt = `Tu es FlyBot, expert FlyHost. Je déploie une application ${EGG_LABELS[type] || type} (${src}) sur un serveur Pterodactyl nommé "${selectedServer.name}". Donne-moi en 3-5 lignes: 1. La commande de démarrage recommandée 2. Les variables d'environnement usuelles à configurer 3. Un conseil spécifique à ce type d'app. Réponds en français, format concis et pratique.`;
-      const reply = await askFlyBot(prompt);
-      setAiSuggestion(reply);
+      const prompt = `Tu es FlyBot, expert FlyHost. Je déploie une application ${EGG_LABELS[type] || type} (${src}) sur un serveur Pterodactyl nommé "${selectedServer.name}".
+
+Réponds UNIQUEMENT avec un JSON valide (pas de texte autour), format exact:
+{
+  "startCommand": "node index.js",
+  "envVars": [
+    {"key": "NODE_ENV", "placeholder": "production", "description": "Environnement d'exécution", "required": true},
+    {"key": "PORT", "placeholder": "3000", "description": "Port d'écoute du serveur", "required": true}
+  ],
+  "tip": "Un conseil pratique court en français pour ce type d'app."
+}
+
+Inclus 3 à 6 variables d'environnement typiques pour ce type d'application. Les clés doivent être en MAJUSCULES_AVEC_TIRETS.`;
+      const raw = await askFlyBot(prompt);
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("Réponse IA invalide");
+      const parsed: AiConfigResult = JSON.parse(jsonMatch[0]);
+      setAiConfig(parsed);
     } catch (e: any) {
       showToast("FlyBot temporairement indisponible", "error");
     } finally {
       setAiLoading(false);
     }
+  }
+
+  function addSuggestedEnvVar(v: AiEnvSuggestion) {
+    setEnvVars(prev => {
+      if (prev.some(e => e.key === v.key)) return prev;
+      return [...prev, { key: v.key, value: "" }];
+    });
+  }
+
+  function addAllSuggestedEnvVars() {
+    if (!aiConfig) return;
+    setEnvVars(prev => {
+      const existing = new Set(prev.map(e => e.key));
+      const toAdd = aiConfig.envVars.filter(v => !existing.has(v.key)).map(v => ({ key: v.key, value: "" }));
+      return [...prev, ...toAdd];
+    });
   }
 
   async function analyzeDeployFailure() {
@@ -520,25 +554,87 @@ export default function DeployPage() {
               </p>
 
               {/* FlyBot AI suggestion card */}
-              <div style={{ background: "rgba(250,204,21,0.06)", border: `1.5px solid rgba(250,204,21,0.15)`, borderRadius: "14px", padding: "16px 18px", marginBottom: "16px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: aiSuggestion ? "12px" : "0" }}>
+              <div style={{ background: "rgba(250,204,21,0.06)", border: `1.5px solid rgba(250,204,21,0.18)`, borderRadius: "14px", padding: "16px 18px", marginBottom: "16px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                     <span style={{ fontSize: "16px" }}>✨</span>
-                    <span style={{ fontSize: "13px", fontWeight: 700, color: Y }}>Suggestions FlyBot</span>
+                    <span style={{ fontSize: "13px", fontWeight: 700, color: Y }}>FlyBot — Configuration automatique</span>
                   </div>
                   <button
                     onClick={getAiConfigSuggestion}
                     disabled={aiLoading}
                     style={{ padding: "5px 14px", background: aiLoading ? "rgba(250,204,21,0.15)" : Y, border: "none", color: aiLoading ? Y : Bg, borderRadius: "8px", cursor: aiLoading ? "not-allowed" : "pointer", fontFamily: "inherit", fontSize: "12px", fontWeight: 700 }}
                   >
-                    {aiLoading ? "⏳ Analyse..." : aiSuggestion ? "↻ Actualiser" : "Demander à FlyBot"}
+                    {aiLoading ? "⏳ Analyse..." : aiConfig ? "↻ Regénérer" : "✨ Générer la config"}
                   </button>
                 </div>
-                {aiSuggestion ? (
-                  <div style={{ fontSize: "13px", color: "#d4d4d8", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>{aiSuggestion}</div>
-                ) : !aiLoading ? (
-                  <p style={{ fontSize: "12px", color: Muted, margin: 0 }}>FlyBot peut suggérer la commande de démarrage, les variables d'env et des conseils pour votre type d'application.</p>
-                ) : null}
+
+                {!aiConfig && !aiLoading && (
+                  <p style={{ fontSize: "12px", color: Muted, margin: "10px 0 0 0" }}>FlyBot analyse votre app et génère automatiquement la commande de démarrage et les variables d'environnement à configurer.</p>
+                )}
+
+                {aiConfig && (
+                  <div style={{ marginTop: "14px", display: "flex", flexDirection: "column", gap: "14px" }}>
+                    {/* Start command */}
+                    <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: "10px", padding: "10px 14px" }}>
+                      <div style={{ fontSize: "11px", fontWeight: 700, color: Muted, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>Commande de démarrage suggérée</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <code style={{ flex: 1, fontSize: "13px", fontFamily: "monospace", color: G, background: "rgba(16,185,129,0.08)", padding: "6px 10px", borderRadius: "6px" }}>{aiConfig.startCommand}</code>
+                        <button
+                          onClick={() => setStartCommand(aiConfig.startCommand)}
+                          style={{ padding: "5px 12px", background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.3)", color: G, borderRadius: "6px", cursor: "pointer", fontFamily: "inherit", fontSize: "11px", fontWeight: 700, whiteSpace: "nowrap" }}
+                        >
+                          ← Utiliser
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Env vars suggestions */}
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+                        <div style={{ fontSize: "11px", fontWeight: 700, color: Muted, textTransform: "uppercase", letterSpacing: "0.5px" }}>Variables suggérées</div>
+                        <button
+                          onClick={addAllSuggestedEnvVars}
+                          style={{ padding: "4px 10px", background: Ydim, border: `1px solid ${Yborder}`, color: Y, borderRadius: "6px", cursor: "pointer", fontFamily: "inherit", fontSize: "11px", fontWeight: 700 }}
+                        >
+                          + Toutes ajouter
+                        </button>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                        {aiConfig.envVars.map((v) => {
+                          const alreadyAdded = envVars.some(e => e.key === v.key);
+                          return (
+                            <div key={v.key} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 12px", background: "rgba(255,255,255,0.03)", borderRadius: "8px", border: alreadyAdded ? "1px solid rgba(16,185,129,0.25)" : "1px solid rgba(255,255,255,0.06)" }}>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <code style={{ fontSize: "12px", fontFamily: "monospace", color: alreadyAdded ? G : Y, fontWeight: 700 }}>{v.key}</code>
+                                  {v.required && <span style={{ fontSize: "9px", background: "rgba(239,68,68,0.15)", color: R, padding: "1px 5px", borderRadius: "4px", fontWeight: 700 }}>REQUIS</span>}
+                                  {alreadyAdded && <span style={{ fontSize: "9px", background: "rgba(16,185,129,0.15)", color: G, padding: "1px 5px", borderRadius: "4px", fontWeight: 700 }}>✓ AJOUTÉ</span>}
+                                </div>
+                                <div style={{ fontSize: "11px", color: Muted, marginTop: "2px" }}>{v.description}</div>
+                              </div>
+                              <code style={{ fontSize: "11px", color: "#52525B", fontFamily: "monospace", flexShrink: 0 }}>{v.placeholder}</code>
+                              <button
+                                onClick={() => addSuggestedEnvVar(v)}
+                                disabled={alreadyAdded}
+                                style={{ padding: "4px 10px", background: alreadyAdded ? "rgba(16,185,129,0.1)" : Ydim, border: alreadyAdded ? "1px solid rgba(16,185,129,0.3)" : `1px solid ${Yborder}`, color: alreadyAdded ? G : Y, borderRadius: "6px", cursor: alreadyAdded ? "default" : "pointer", fontFamily: "inherit", fontSize: "11px", fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 }}
+                              >
+                                {alreadyAdded ? "✓" : "+ Ajouter"}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Tip */}
+                    {aiConfig.tip && (
+                      <div style={{ fontSize: "12px", color: Sub, background: "rgba(255,255,255,0.03)", padding: "8px 12px", borderRadius: "8px", borderLeft: `2px solid ${Y}` }}>
+                        💡 {aiConfig.tip}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div style={{ background: Sur2, border: "1.5px solid rgba(255,255,255,0.07)", borderRadius: "14px", padding: "20px", marginBottom: "16px" }}>
