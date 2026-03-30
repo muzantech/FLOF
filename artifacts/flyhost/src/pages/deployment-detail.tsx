@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRoute, Link } from "wouter";
 import { formatDistanceToNow } from "date-fns";
 import { AppLayout } from "@/components/layout";
@@ -11,8 +11,29 @@ import {
 import { DeploymentStatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, ExternalLink, GitCommit, GitBranch, Clock, ArrowUpRight, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, ExternalLink, GitCommit, GitBranch, Clock, ArrowUpRight, CheckCircle2, Sparkles, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+
+const GIFTED_KEY = "gifted-api_0u5a705yfobo870e70ge6";
+async function analyzeWithAI(logText: string, context: string): Promise<string> {
+  const ctx = `Tu es FlyBot, expert en déploiement FlyHost (Pterodactyl). ${context} Analyse ces logs et identifie: 1. L'erreur précise 2. La cause probable 3. Les solutions concrètes étape par étape. Réponds en français de façon structurée et concise.`;
+  const q = `${ctx}\n\nLogs:\n\`\`\`\n${logText.slice(-3000)}\n\`\`\``;
+  try {
+    const r = await fetch(`/api/ai/analyze-logs`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ logs: logText, serverName: context }),
+      signal: AbortSignal.timeout(6000),
+    });
+    if (r.ok) { const d = await r.json(); if (d.reply) return d.reply; }
+  } catch {}
+  for (const model of ["gpt4o", "gemini"]) {
+    try {
+      const r = await fetch(`https://api.giftedtech.co.ke/api/ai/${model}?apikey=${GIFTED_KEY}&q=${encodeURIComponent(q)}`, { signal: AbortSignal.timeout(20000) });
+      if (r.ok) { const d = await r.json(); if (d.result) return String(d.result); }
+    } catch {}
+  }
+  throw new Error("L'IA est temporairement indisponible.");
+}
 
 export default function DeploymentDetailPage() {
   const [, params] = useRoute("/deployments/:id");
@@ -40,8 +61,25 @@ export default function DeploymentDetailPage() {
 
   const { mutateAsync: promote, isPending: promoting } = usePromoteDeployment();
   const { toast } = useToast();
-  
+  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
+
+  async function handleAiAnalysis() {
+    if (!logs || logs.length === 0) return;
+    setAiLoading(true);
+    setAiAnalysis(null);
+    try {
+      const logText = logs.map(l => `[${l.level}] ${l.message}`).join("\n");
+      const context = `Déploiement #${deploymentId} du projet "${deployment?.url || "inconnu"}".`;
+      const reply = await analyzeWithAI(logText, context);
+      setAiAnalysis(reply);
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Erreur IA", description: e.message });
+    } finally {
+      setAiLoading(false);
+    }
+  }
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -110,13 +148,27 @@ export default function DeploymentDetailPage() {
 
         {/* Logs Terminal */}
         <Card className="bg-black border-border shadow-2xl overflow-hidden rounded-xl">
-          <div className="flex items-center gap-2 px-4 py-3 bg-[#111] border-b border-border/50 text-xs text-muted-foreground font-mono">
-            <div className="flex gap-1.5 mr-2">
-              <div className="w-2.5 h-2.5 rounded-full bg-red-500/50"></div>
-              <div className="w-2.5 h-2.5 rounded-full bg-amber-500/50"></div>
-              <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/50"></div>
+          <div className="flex items-center justify-between gap-2 px-4 py-3 bg-[#111] border-b border-border/50 text-xs text-muted-foreground font-mono">
+            <div className="flex items-center gap-2">
+              <div className="flex gap-1.5 mr-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-red-500/50"></div>
+                <div className="w-2.5 h-2.5 rounded-full bg-amber-500/50"></div>
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/50"></div>
+              </div>
+              Build Logs
             </div>
-            Build Logs
+            {(deployment.status === 'error' || (logs && logs.some(l => l.level === 'error'))) && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleAiAnalysis}
+                disabled={aiLoading || !logs || logs.length === 0}
+                className="h-7 px-2.5 text-xs text-yellow-400 hover:text-yellow-300 hover:bg-yellow-400/10 border border-yellow-400/20 font-mono"
+              >
+                {aiLoading ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <Sparkles className="w-3 h-3 mr-1.5" />}
+                {aiLoading ? "Analyse..." : "Analyser avec FlyBot"}
+              </Button>
+            )}
           </div>
           <div className="p-4 font-mono text-[13px] leading-relaxed h-[500px] overflow-y-auto bg-[#0a0a0a]">
             {logs && logs.length > 0 ? (
@@ -150,6 +202,20 @@ export default function DeploymentDetailPage() {
             )}
           </div>
         </Card>
+
+        {/* AI Analysis Panel */}
+        {aiAnalysis && (
+          <Card className="border-yellow-400/20 bg-yellow-400/5">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-yellow-400/15">
+              <Sparkles className="w-4 h-4 text-yellow-400" />
+              <span className="text-sm font-semibold text-yellow-400">Analyse FlyBot</span>
+              <button onClick={() => setAiAnalysis(null)} className="ml-auto text-muted-foreground hover:text-white text-xs">✕</button>
+            </div>
+            <div className="p-4 text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">
+              {aiAnalysis}
+            </div>
+          </Card>
+        )}
       </div>
     </AppLayout>
   );

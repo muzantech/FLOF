@@ -3,9 +3,28 @@ import Editor from "@monaco-editor/react";
 import { AppLayout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Download, Play, RefreshCw, Copy, Code2, Eye, Columns2 } from "lucide-react";
+import { Download, Play, RefreshCw, Copy, Code2, Eye, Columns2, Sparkles, Loader2, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+
+const GIFTED_KEY = "gifted-api_0u5a705yfobo870e70ge6";
+async function askCodeAI(prompt: string): Promise<string> {
+  try {
+    const r = await fetch(`/api/ai/chat`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: prompt }),
+      signal: AbortSignal.timeout(6000),
+    });
+    if (r.ok) { const d = await r.json(); if (d.reply) return d.reply; }
+  } catch {}
+  for (const model of ["gpt4o", "gemini"]) {
+    try {
+      const r = await fetch(`https://api.giftedtech.co.ke/api/ai/${model}?apikey=${GIFTED_KEY}&q=${encodeURIComponent(prompt)}`, { signal: AbortSignal.timeout(20000) });
+      if (r.ok) { const d = await r.json(); if (d.result) return String(d.result); }
+    } catch {}
+  }
+  throw new Error("FlyBot indisponible.");
+}
 
 const DEFAULT_HTML = `<!DOCTYPE html>
 <html lang="fr">
@@ -115,6 +134,25 @@ export default function EditorPage() {
   const [cachedSrcDoc, setCachedSrcDoc] = useState(() => buildSrcDoc(DEFAULT_HTML, DEFAULT_CSS, DEFAULT_JS));
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const { toast } = useToast();
+  const [aiPanel, setAiPanel] = useState<{ open: boolean; result: string | null; loading: boolean; action: string }>({ open: false, result: null, loading: false, action: "" });
+
+  async function runAiAction(action: "explain" | "fix" | "improve") {
+    const code = activeTab === "html" ? htmlCode : activeTab === "css" ? cssCode : jsCode;
+    const lang = activeTab.toUpperCase();
+    const labels: Record<string, string> = { explain: "Expliquer", fix: "Corriger", improve: "Améliorer" };
+    const prompts: Record<string, string> = {
+      explain: `Tu es FlyBot, assistant IA FlyHost. Explique ce code ${lang} de façon simple et pédagogique (pour un débutant). Explique ce qu'il fait, section par section. Réponds en français.\n\nCode:\n\`\`\`${lang.toLowerCase()}\n${code.slice(0, 3000)}\n\`\`\``,
+      fix: `Tu es FlyBot, assistant IA FlyHost. Identifie et corrige les bugs et erreurs dans ce code ${lang}. Montre le code corrigé avec des explications. Réponds en français.\n\nCode:\n\`\`\`${lang.toLowerCase()}\n${code.slice(0, 3000)}\n\`\`\``,
+      improve: `Tu es FlyBot, assistant IA FlyHost. Propose des améliorations concrètes pour ce code ${lang}: performance, lisibilité, bonnes pratiques. Réponds en français avec des exemples.\n\nCode:\n\`\`\`${lang.toLowerCase()}\n${code.slice(0, 3000)}\n\`\`\``,
+    };
+    setAiPanel({ open: true, result: null, loading: true, action: labels[action] });
+    try {
+      const reply = await askCodeAI(prompts[action]);
+      setAiPanel(p => ({ ...p, result: reply, loading: false }));
+    } catch (e: any) {
+      setAiPanel(p => ({ ...p, result: "FlyBot temporairement indisponible.", loading: false }));
+    }
+  }
 
   const liveSrcDoc = buildSrcDoc(htmlCode, cssCode, jsCode);
   const srcDoc = livePreview ? liveSrcDoc : cachedSrcDoc;
@@ -226,8 +264,44 @@ export default function EditorPage() {
               <Download className="w-3.5 h-3.5 mr-1" />
               .html
             </Button>
+
+            <div className="h-5 w-px bg-border mx-1" />
+
+            {/* AI Buttons */}
+            <Button size="sm" variant="ghost" onClick={() => runAiAction("explain")} disabled={aiPanel.loading} className="h-8 px-2.5 text-xs text-yellow-400 hover:text-yellow-300 hover:bg-yellow-400/10" title="Expliquer ce code">
+              {aiPanel.loading && aiPanel.action === "Expliquer" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+              <span className="hidden md:inline ml-1">Expliquer</span>
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => runAiAction("fix")} disabled={aiPanel.loading} className="h-8 px-2.5 text-xs text-red-400 hover:text-red-300 hover:bg-red-400/10" title="Corriger les bugs">
+              <span className="text-xs">🐛</span>
+              <span className="hidden md:inline ml-1">Corriger</span>
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => runAiAction("improve")} disabled={aiPanel.loading} className="h-8 px-2.5 text-xs text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10" title="Améliorer le code">
+              <span className="text-xs">⬆</span>
+              <span className="hidden md:inline ml-1">Améliorer</span>
+            </Button>
           </div>
         </div>
+
+        {/* AI Panel (full-width, below toolbar) */}
+        {aiPanel.open && (
+          <div className="shrink-0 border-b border-yellow-400/20 bg-yellow-400/5">
+            <div className="flex items-center gap-2 px-4 py-2.5 border-b border-yellow-400/10">
+              <Sparkles className="w-3.5 h-3.5 text-yellow-400" />
+              <span className="text-xs font-semibold text-yellow-400">FlyBot — {aiPanel.action} ({activeTab.toUpperCase()})</span>
+              <button onClick={() => setAiPanel(p => ({ ...p, open: false, result: null }))} className="ml-auto text-muted-foreground hover:text-white">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="px-4 py-3 text-xs text-gray-300 leading-relaxed font-mono max-h-48 overflow-y-auto whitespace-pre-wrap">
+              {aiPanel.loading ? (
+                <span className="flex items-center gap-2 text-yellow-400/70"><Loader2 className="w-3 h-3 animate-spin" /> FlyBot analyse votre code...</span>
+              ) : (
+                aiPanel.result
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Main area */}
         <div className="flex flex-1 overflow-hidden">

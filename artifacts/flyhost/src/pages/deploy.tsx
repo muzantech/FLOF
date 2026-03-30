@@ -2,6 +2,25 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { FlyLayout } from "@/components/fly-layout";
 
+const GIFTED_KEY = "gifted-api_0u5a705yfobo870e70ge6";
+async function askFlyBot(prompt: string): Promise<string> {
+  try {
+    const r = await fetch(`/api/ai/chat`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: prompt }),
+      signal: AbortSignal.timeout(6000),
+    });
+    if (r.ok) { const d = await r.json(); if (d.reply) return d.reply; }
+  } catch {}
+  for (const model of ["gpt4o", "gemini"]) {
+    try {
+      const r = await fetch(`https://api.giftedtech.co.ke/api/ai/${model}?apikey=${GIFTED_KEY}&q=${encodeURIComponent(prompt)}`, { signal: AbortSignal.timeout(20000) });
+      if (r.ok) { const d = await r.json(); if (d.result) return String(d.result); }
+    } catch {}
+  }
+  throw new Error("FlyBot indisponible.");
+}
+
 const Y = "#FACC15";
 const Ydim = "rgba(250,204,21,0.10)";
 const Yborder = "rgba(250,204,21,0.18)";
@@ -111,6 +130,45 @@ export default function DeployPage() {
   function showToast(msg: string, type = "info") {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 4000);
+  }
+
+  const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiDeployAnalysis, setAiDeployAnalysis] = useState<string | null>(null);
+  const [aiDeployLoading, setAiDeployLoading] = useState(false);
+
+  async function getAiConfigSuggestion() {
+    if (!selectedServer) return;
+    setAiLoading(true);
+    setAiSuggestion(null);
+    try {
+      const type = guessType(selectedServer);
+      const src = method === "github" ? `dépôt GitHub: ${gitUrl || "non spécifié"}` : "fichier ZIP uploadé";
+      const prompt = `Tu es FlyBot, expert FlyHost. Je déploie une application ${EGG_LABELS[type] || type} (${src}) sur un serveur Pterodactyl nommé "${selectedServer.name}". Donne-moi en 3-5 lignes: 1. La commande de démarrage recommandée 2. Les variables d'environnement usuelles à configurer 3. Un conseil spécifique à ce type d'app. Réponds en français, format concis et pratique.`;
+      const reply = await askFlyBot(prompt);
+      setAiSuggestion(reply);
+    } catch (e: any) {
+      showToast("FlyBot temporairement indisponible", "error");
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
+  async function analyzeDeployFailure() {
+    if (logs.length === 0) return;
+    setAiDeployLoading(true);
+    setAiDeployAnalysis(null);
+    try {
+      const logText = logs.map(l => `[${l.level}] ${l.message}`).join("\n");
+      const type = selectedServer ? guessType(selectedServer) : "app";
+      const prompt = `Tu es FlyBot, expert en déploiement FlyHost. Une app ${EGG_LABELS[type] || type} a échoué lors du déploiement. Analyse ces logs et explique: 1. L'erreur précise 2. La cause probable 3. La solution étape par étape. Réponds en français de façon concrète.\n\nLogs:\n\`\`\`\n${logText.slice(-2500)}\n\`\`\``;
+      const reply = await askFlyBot(prompt);
+      setAiDeployAnalysis(reply);
+    } catch (e: any) {
+      showToast("FlyBot temporairement indisponible", "error");
+    } finally {
+      setAiDeployLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -457,9 +515,31 @@ export default function DeployPage() {
 
           {step === 2 && (
             <div style={{ maxWidth: "560px" }}>
-              <p style={{ color: Muted, fontSize: "13px", marginBottom: "24px" }}>
+              <p style={{ color: Muted, fontSize: "13px", marginBottom: "16px" }}>
                 Configuration pour <span style={{ color: Y, fontWeight: 700 }}>{selectedServer?.name.replace(/\s*\[FH-\d+\]/, "")}</span>
               </p>
+
+              {/* FlyBot AI suggestion card */}
+              <div style={{ background: "rgba(250,204,21,0.06)", border: `1.5px solid rgba(250,204,21,0.15)`, borderRadius: "14px", padding: "16px 18px", marginBottom: "16px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: aiSuggestion ? "12px" : "0" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span style={{ fontSize: "16px" }}>✨</span>
+                    <span style={{ fontSize: "13px", fontWeight: 700, color: Y }}>Suggestions FlyBot</span>
+                  </div>
+                  <button
+                    onClick={getAiConfigSuggestion}
+                    disabled={aiLoading}
+                    style={{ padding: "5px 14px", background: aiLoading ? "rgba(250,204,21,0.15)" : Y, border: "none", color: aiLoading ? Y : Bg, borderRadius: "8px", cursor: aiLoading ? "not-allowed" : "pointer", fontFamily: "inherit", fontSize: "12px", fontWeight: 700 }}
+                  >
+                    {aiLoading ? "⏳ Analyse..." : aiSuggestion ? "↻ Actualiser" : "Demander à FlyBot"}
+                  </button>
+                </div>
+                {aiSuggestion ? (
+                  <div style={{ fontSize: "13px", color: "#d4d4d8", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>{aiSuggestion}</div>
+                ) : !aiLoading ? (
+                  <p style={{ fontSize: "12px", color: Muted, margin: 0 }}>FlyBot peut suggérer la commande de démarrage, les variables d'env et des conseils pour votre type d'application.</p>
+                ) : null}
+              </div>
 
               <div style={{ background: Sur2, border: "1.5px solid rgba(255,255,255,0.07)", borderRadius: "14px", padding: "20px", marginBottom: "16px" }}>
                 <div style={{ fontSize: "13px", fontWeight: 700, color: Sub, marginBottom: "14px" }}>⚡ Runtime</div>
@@ -639,14 +719,35 @@ export default function DeployPage() {
           )}
 
           {phase === "failed" && (
-            <div style={{ marginTop: "12px", padding: "14px 20px", background: "rgba(239,68,68,0.07)", border: `1.5px solid rgba(239,68,68,0.2)`, borderRadius: "12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div>
-                <span style={{ color: R, fontWeight: 700, fontSize: "14px" }}>❌ Le déploiement a échoué</span>
-                <p style={{ color: Muted, fontSize: "12px", marginTop: "2px" }}>Consultez les logs ci-dessus pour identifier l'erreur</p>
+            <div style={{ marginTop: "12px" }}>
+              <div style={{ padding: "14px 20px", background: "rgba(239,68,68,0.07)", border: `1.5px solid rgba(239,68,68,0.2)`, borderRadius: "12px", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
+                <div>
+                  <span style={{ color: R, fontWeight: 700, fontSize: "14px" }}>❌ Le déploiement a échoué</span>
+                  <p style={{ color: Muted, fontSize: "12px", marginTop: "2px" }}>FlyBot peut analyser les logs et proposer une solution.</p>
+                </div>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button
+                    onClick={analyzeDeployFailure}
+                    disabled={aiDeployLoading || logs.length === 0}
+                    style={{ padding: "10px 18px", background: Ydim, border: `1.5px solid ${Yborder}`, color: Y, borderRadius: "9px", cursor: aiDeployLoading ? "not-allowed" : "pointer", fontFamily: "inherit", fontWeight: 700, fontSize: "12px", display: "flex", alignItems: "center", gap: "6px" }}
+                  >
+                    {aiDeployLoading ? "⏳" : "✨"} {aiDeployLoading ? "Analyse..." : "Analyser avec FlyBot"}
+                  </button>
+                  <button onClick={() => { setPhase("idle"); setDeploying(false); setLogs([]); setDeploymentId(null); setStep(0); setAiDeployAnalysis(null); }} style={{ padding: "10px 20px", background: "rgba(255,255,255,0.06)", border: "1.5px solid rgba(255,255,255,0.1)", color: Sub, borderRadius: "9px", cursor: "pointer", fontFamily: "inherit", fontWeight: 800, fontSize: "13px" }}>
+                    ← Recommencer
+                  </button>
+                </div>
               </div>
-              <button onClick={() => { setPhase("idle"); setDeploying(false); setLogs([]); setDeploymentId(null); setStep(0); }} style={{ padding: "10px 20px", background: Ydim, border: `1.5px solid ${Yborder}`, color: Y, borderRadius: "9px", cursor: "pointer", fontFamily: "inherit", fontWeight: 800, fontSize: "13px" }}>
-                ← Recommencer
-              </button>
+              {aiDeployAnalysis && (
+                <div style={{ padding: "16px 18px", background: "rgba(250,204,21,0.06)", border: `1.5px solid rgba(250,204,21,0.18)`, borderRadius: "12px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
+                    <span style={{ fontSize: "14px" }}>✨</span>
+                    <span style={{ fontSize: "13px", fontWeight: 700, color: Y }}>Analyse FlyBot</span>
+                    <button onClick={() => setAiDeployAnalysis(null)} style={{ marginLeft: "auto", background: "none", border: "none", color: Muted, cursor: "pointer", fontSize: "12px" }}>✕</button>
+                  </div>
+                  <div style={{ fontSize: "13px", color: "#d4d4d8", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>{aiDeployAnalysis}</div>
+                </div>
+              )}
             </div>
           )}
         </div>
