@@ -20,6 +20,7 @@ import schedulesRouter from "./schedules";
 import proxyRouter from "./proxy";
 import adminRouter from "./admin";
 import announcementsRouter from "./announcements";
+import aiRouter from "./ai";
 
 const router: IRouter = Router();
 
@@ -44,5 +45,6 @@ router.use(schedulesRouter);
 router.use(proxyRouter);
 router.use(adminRouter);
 router.use(announcementsRouter);
+router.use(aiRouter);
 
 export default router;

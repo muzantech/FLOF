@@ -5,6 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Editor from "@monaco-editor/react";
 import {
   Server,
@@ -210,6 +211,57 @@ function ConsolePanel({
   const manualDisconnect = useRef(false);
   const consoleEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
+
+  async function analyzeLogsWithAI() {
+    if (lines.length === 0) {
+      toast({ title: "Pas de logs", description: "Lance le serveur d'abord pour générer des logs.", variant: "destructive" });
+      return;
+    }
+    setAiAnalyzing(true);
+    setAiAnalysis(null);
+    try {
+      const logText = lines.map(l => l.text).join("\n");
+      let reply: string | null = null;
+
+      // Try backend first
+      try {
+        const res = await fetch("/api/ai/analyze-logs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ logs: logText, serverName: identifier }),
+          signal: AbortSignal.timeout(6000),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          reply = data.reply as string;
+        }
+      } catch {}
+
+      // Fallback: call GiftedTech directly
+      if (!reply) {
+        const GIFTED_KEY = "gifted-api_0u5a705yfobo870e70ge6";
+        const ctx = "Tu es FlyBot, expert en hébergement FlyHost. Analyse ces logs et identifie: 1. Les erreurs critiques 2. La cause probable 3. Les solutions concrètes. Réponds en français de façon structurée.";
+        const q = `${ctx}\n\nLogs du serveur "${identifier}":\n\`\`\`\n${logText.slice(-2500)}\n\`\`\``;
+        const r = await fetch(`https://api.giftedtech.co.ke/api/ai/gpt4o?apikey=${GIFTED_KEY}&q=${encodeURIComponent(q)}`, {
+          signal: AbortSignal.timeout(20000)
+        });
+        if (r.ok) {
+          const d = await r.json();
+          reply = d.result ? String(d.result) : null;
+        }
+      }
+
+      if (!reply) throw new Error("L'IA est temporairement indisponible.");
+      setAiAnalysis(reply);
+    } catch (e: any) {
+      toast({ title: "Erreur IA", description: e.message, variant: "destructive" });
+    } finally {
+      setAiAnalyzing(false);
+    }
+  }
 
   function addLine(text: string, type: ConsoleLine["type"] = "output") {
     setLines(prev => [...prev.slice(-500), { text, ts: Date.now(), type }]);
@@ -358,6 +410,17 @@ function ConsolePanel({
           {connected ? "Console connectée" : connecting ? "Connexion en cours…" : "Reconnexion…"}
         </div>
         <div className="flex-1" />
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 text-xs gap-1 px-2 text-yellow-400/80 hover:text-yellow-300 hover:bg-yellow-400/10"
+          onClick={analyzeLogsWithAI}
+          disabled={aiAnalyzing || lines.length === 0}
+          title="Analyser les logs avec l'IA"
+        >
+          {aiAnalyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+          IA
+        </Button>
         <Button size="sm" variant="ghost" className="h-7 text-xs text-zinc-500 hover:text-white gap-1 px-2" onClick={() => setLines([])}>
           <X className="w-3 h-3" /> Effacer
         </Button>
@@ -415,6 +478,21 @@ function ConsolePanel({
           Envoyer
         </Button>
       </div>
+
+      {/* AI Analysis Dialog */}
+      <Dialog open={!!aiAnalysis} onOpenChange={(o) => !o && setAiAnalysis(null)}>
+        <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-yellow-400">
+              <Zap className="w-4 h-4" />
+              Analyse IA des logs — {identifier}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="mt-2 text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
+            {aiAnalysis}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

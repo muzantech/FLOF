@@ -34,6 +34,9 @@ const LOCAL_DOMAIN = process.env.LOCAL_DOMAIN || "flihost.site";
 const REFRESH_MS   = parseInt(process.env.REFRESH_MS || "30000", 10);
 const MF_RELAY_SECRET = process.env.MF_RELAY_SECRET || "flyhost-mf-relay-2026-secret";
 const MF_PAY_URL = process.env.MF_PAY_URL || "https://www.pay.moneyfusion.net/FLYHOST/8a106a9cd82c8779/pay/";
+const GIFTED_API_KEY = process.env.GIFTED_API_KEY || "gifted-api_0u5a705yfobo870e70ge6";
+const GIFTED_BASE = "https://api.giftedtech.co.ke/api/ai";
+const FLYHOST_SYSTEM = "Tu es FlyBot, l'assistant IA de FlyHost — la plateforme d'hébergement web pour l'Afrique francophone. FlyHost permet de déployer des applications Node.js, Python, PHP, Java et des serveurs Minecraft. On paye en FCFA avec Orange Money, Wave ou MTN. Réponds toujours en français, de façon claire, courte et pratique. Si tu ne sais pas quelque chose, dis-le honnêtement.";
 
 /**
  * Detect the Docker host gateway IP by reading /proc/net/route.
@@ -175,6 +178,75 @@ function serveStatic(reqPath, clientRes) {
     "X-Powered-By": "FlyHost",
   });
   fs.createReadStream(filePath).pipe(clientRes);
+}
+
+// ─────────────────── FlyBot AI proxy ─────────────────────────────────────────
+/**
+ * Handles /api/ai/* routes locally without forwarding to the API container.
+ * Requires valid Authorization: Bearer <token> header (checked non-empty only).
+ * Calls GiftedTech API with FlyHost system context.
+ */
+async function handleAiRequest(clientReq, clientRes, aiRoute) {
+  let body = "";
+  clientReq.on("data", c => { body += c; });
+  clientReq.on("end", async () => {
+    const respond = (status, obj) => {
+      const json = JSON.stringify(obj);
+      clientRes.writeHead(status, {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+      });
+      clientRes.end(json);
+    };
+
+    // Auth check — require Bearer token
+    const authHeader = clientReq.headers["authorization"] || "";
+    if (!authHeader.startsWith("Bearer ")) {
+      return respond(401, { error: "Unauthorized" });
+    }
+
+    let data;
+    try { data = JSON.parse(body); } catch { data = {}; }
+
+    try {
+      let question;
+
+      if (aiRoute === "chat") {
+        const msg = (data.message || "").trim();
+        if (!msg) return respond(400, { error: "Message requis" });
+        question = FLYHOST_SYSTEM + "\n\nQuestion de l'utilisateur: " + msg;
+      } else if (aiRoute === "analyze-logs") {
+        const logs = (data.logs || "").trim();
+        if (!logs) return respond(400, { error: "Logs requis" });
+        const name = data.serverName || "serveur";
+        question = FLYHOST_SYSTEM + "\n\nAnalyse ces logs du serveur \"" + name + "\" et identifie:\n1. Les erreurs critiques\n2. La cause probable\n3. Les solutions concrètes\n\nLogs:\n```\n" + logs.slice(-3000) + "\n```\nRéponds de façon structurée et pratique.";
+      } else if (aiRoute === "deploy-help") {
+        question = FLYHOST_SYSTEM + "\n\nUn utilisateur veut déployer une app. Langage: " + (data.language || "?") + ", Framework: " + (data.framework || "?") + ", Description: " + (data.description || "?") + ". Donne: commande de démarrage, variables d'env nécessaires, port, conseils pratiques. Sois concis.";
+      } else {
+        return respond(404, { error: "Route inconnue" });
+      }
+
+      // Try GPT-4o first, fallback to gemini
+      let reply;
+      for (const model of ["gpt4o", "gemini"]) {
+        try {
+          const r = await fetch(GIFTED_BASE + "/" + model + "?apikey=" + GIFTED_API_KEY + "&q=" + encodeURIComponent(question), {
+            signal: AbortSignal.timeout(20000)
+          });
+          if (r.ok) {
+            const d = await r.json();
+            if (d.result) { reply = String(d.result); break; }
+          }
+        } catch (_) {}
+      }
+      if (!reply) return respond(503, { error: "L'IA est temporairement indisponible." });
+
+      return respond(200, { reply, analyzed: aiRoute === "analyze-logs" });
+    } catch (err) {
+      console.error("[ai]", err.message);
+      return respond(500, { error: "Erreur IA: " + err.message });
+    }
+  });
 }
 
 // ─────────────────── MoneyFusion relay (appel depuis IP VPS autorisée) ────────
@@ -351,6 +423,13 @@ function handleRequest(clientReq, clientRes) {
     // MoneyFusion relay — handled locally on VPS (whitelisted IP)
     if (reqPath === "/api/payment/mf-relay" && clientReq.method === "POST") {
       handleMfRelay(clientReq, clientRes);
+      return;
+    }
+
+    // FlyBot AI routes — handled locally on VPS (no API container needed)
+    const aiMatch = reqPath.match(/^\/api\/ai\/(chat|analyze-logs|deploy-help)$/);
+    if (aiMatch && clientReq.method === "POST") {
+      handleAiRequest(clientReq, clientRes, aiMatch[1]);
       return;
     }
 

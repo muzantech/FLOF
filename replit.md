@@ -20,6 +20,7 @@ Monorepo pnpm avec TypeScript. Frontend + API déployés sur le VPS via containe
 - **Email**: Nodemailer (SMTP)
 - **Serveurs**: Pterodactyl Panel (Wings API)
 - **DNS/CDN**: Cloudflare (wildcard *.flihost.site)
+- **IA**: GiftedTech API (`gpt4o` → `gemini` → `ai` fallback chain)
 
 ## Architecture de déploiement
 
@@ -48,6 +49,25 @@ Internet
 - Le cluster PostgreSQL utilise `LD_PRELOAD=/home/container/uid-fix.so` pour contourner l'absence de UID 999 dans `/etc/passwd`
 - Heartbeat toutes les 30s avec redémarrage automatique si PG ne répond plus
 - **NE PAS modifier le container 10638e67 sans backup** — toutes les données prod sont là
+
+## FlyBot — Assistant IA
+
+**Architecture hybride** (résiliente aux pannes VPS) :
+1. Le frontend tente d'abord `POST /api/ai/chat` (backend sécurisé, timeout 5s)
+2. Si le backend renvoie 404/timeout → fallback direct vers GiftedTech API depuis le browser
+
+**Fichiers** :
+- `artifacts/flyhost/src/components/ai-chat.tsx` — widget chat flottant, tout le layout
+- `artifacts/flyhost/src/pages/server-detail.tsx` → bouton "Analyser avec l'IA" (console logs)
+- `artifacts/api-server/src/routes/ai.ts` — 3 routes : `/api/ai/chat`, `/api/ai/analyze-logs`, `/api/ai/deploy-help`
+- `artifacts/api-server/vps-proxy/proxy.js` — routing des `/api/ai/*` vers le container API
+
+**GiftedTech API** :
+- Endpoint : `GET https://api.giftedtech.co.ke/api/ai/{model}?apikey={KEY}&q={question}`
+- Clé : `gifted-api_0u5a705yfobo870e70ge6` (aussi dans `GIFTED_API_KEY` secret Replit)
+- Réponse : `{ status: 200, result: "..." }`
+- Chain : `gpt4o` → `gemini` → `ai`
+- Contexte FLYHOST_CONTEXT injecté dans chaque prompt pour que l'IA connaisse FlyHost
 
 **CRITIQUE dans proxy.js** :
 - `handleRequest` est NOT async — ne jamais utiliser `await` dedans, utiliser `.then()` chains

@@ -142,6 +142,7 @@ const envVars = [
   ["MF_RELAY_SECRET",           process.env.MF_RELAY_SECRET        || "flyhost-mf-relay-2026-secret"],
   ["MF_RELAY_URL",              "https://flihost.site/api/payment/mf-relay"],
   ["MONEYFUSION_PAY_URL",       "https://www.pay.moneyfusion.net/FLYHOST/8a106a9cd82c8779/pay/"],
+  ["GIFTED_API_KEY",            process.env.GIFTED_API_KEY         || "gifted-api_0u5a705yfobo870e70ge6"],
   ["LOG_LEVEL",                 "info"],
 ];
 

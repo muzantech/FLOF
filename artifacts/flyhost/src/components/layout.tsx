@@ -1,4 +1,5 @@
 import { ReactNode, useState, useEffect, useRef } from "react";
+import { AiChat } from "@/components/ai-chat";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -448,6 +449,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
       <main className="flex-1 relative z-10 max-w-7xl mx-auto w-full px-3 sm:px-4 py-5 sm:py-8">
         {children}
       </main>
+
+      {/* FlyBot AI Chat Widget */}
+      <AiChat />
 
       {/* WhatsApp Support Widget */}
       <a

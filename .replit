@@ -26,3 +26,8 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+GIFTED_API_KEY = "gifted-api_0u5a705yfobo870e70ge6"
