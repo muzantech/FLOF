@@ -87,13 +87,12 @@ router.post("/payment/initiate", requireAuth, async (req: AuthRequest, res): Pro
     // Call MoneyFusion via VPS relay (whitelisted IP)
     const { ok: mfOk, data: mfData } = await callMoneyFusion({
       totalPrice: finalAmount,
-      devise: "XOF",
-      infoOrdre: `FlyHost — ${pkg.label}`,
-      numeroOrdre: paymentId,
-      urlRedirect: `${APP_URL}/callback?id=${paymentId}`,
-      urlIpn: `${APP_URL}/api/payment/webhook`,
+      article: [{ FlyHost: finalAmount }],
+      numeroSend: "237000000000",
       nomclient: user.name || user.username,
-      personal_Info: [{ label: "Email", value: user.email }],
+      personal_Info: [{ paymentId, userId: req.userId, email: user.email }],
+      return_url: `${APP_URL}/callback?id=${paymentId}`,
+      webhook_url: `${APP_URL}/api/payment/webhook`,
     });
 
     if (!mfOk || !mfData?.statut || !mfData?.url) {
@@ -118,7 +117,7 @@ router.post("/payment/initiate", requireAuth, async (req: AuthRequest, res): Pro
 // POST /api/payment/webhook — MoneyFusion IPN callback
 router.post("/payment/webhook", async (req, res): Promise<void> => {
   try {
-    const { tokenPay, statut } = req.body;
+    const { tokenPay, statut, event } = req.body;
     if (!tokenPay) { res.json({ status: "ignored" }); return; }
 
     // Find transaction by token
@@ -127,19 +126,36 @@ router.post("/payment/webhook", async (req, res): Promise<void> => {
       .limit(1);
 
     if (txns.length === 0) {
-      // Try by paymentId (some integrations send this)
-      const byId = await db.select().from(paymentTransactionsTable)
-        .where(eq(paymentTransactionsTable.paymentId, tokenPay))
-        .limit(1);
-      if (byId.length === 0) { res.json({ status: "not_found" }); return; }
-      txns.push(byId[0]);
+      // Try by paymentId embedded in personal_Info
+      const byPersonal = req.body?.personal_Info?.[0]?.paymentId;
+      if (byPersonal) {
+        const byId = await db.select().from(paymentTransactionsTable)
+          .where(eq(paymentTransactionsTable.paymentId, byPersonal))
+          .limit(1);
+        if (byId.length > 0) {
+          // Store tokenPay for future lookups
+          await db.update(paymentTransactionsTable)
+            .set({ tokenPay })
+            .where(eq(paymentTransactionsTable.paymentId, byPersonal));
+          txns.push(byId[0]);
+        }
+      }
+      if (txns.length === 0) { res.json({ status: "not_found" }); return; }
     }
 
     const txn = txns[0];
     if (txn.status !== "pending") { res.json({ status: "already_processed" }); return; }
 
-    const success = statut === "paid" || statut === "completed" || statut === "success";
-    const newStatus = success ? "completed" : "failed";
+    // Support both new event format and legacy statut field
+    const isCompleted = event === "payin.session.completed" || statut === "paid" || statut === "completed" || statut === "success";
+    const isCancelled = event === "payin.session.cancelled" || statut === "failed" || statut === "no paid";
+    const isPending = event === "payin.session.pending";
+
+    // Ignore pending events — only act on completed/cancelled
+    if (isPending && !isCompleted && !isCancelled) { res.json({ status: "pending_ignored" }); return; }
+
+    const success = isCompleted;
+    const newStatus = success ? "completed" : (isCancelled ? "failed" : "pending");
 
     await db.update(paymentTransactionsTable)
       .set({ status: newStatus, updatedAt: new Date() })
@@ -272,13 +288,12 @@ router.post("/payment/subscription", requireAuth, async (req: AuthRequest, res):
     // Call MoneyFusion via VPS relay (whitelisted IP)
     const { ok: mfOk, data: mfData } = await callMoneyFusion({
       totalPrice: planConfig.priceFcfa,
-      devise: "XOF",
-      infoOrdre: `FlyHost — Abonnement ${planConfig.label} (${planConfig.durationDays} jours)`,
-      numeroOrdre: paymentId,
-      urlRedirect: `${APP_URL}/callback?id=${paymentId}`,
-      urlIpn: `${APP_URL}/api/payment/webhook`,
+      article: [{ [`Abonnement ${planConfig.label}`]: planConfig.priceFcfa }],
+      numeroSend: "237000000000",
       nomclient: user.name || user.username,
-      personal_Info: [{ label: "Email", value: user.email }],
+      personal_Info: [{ paymentId, userId: req.userId, plan, email: user.email }],
+      return_url: `${APP_URL}/callback?id=${paymentId}`,
+      webhook_url: `${APP_URL}/api/payment/webhook`,
     });
 
     if (!mfOk || !mfData?.statut || !mfData?.url) {
@@ -300,6 +315,8 @@ router.post("/payment/subscription", requireAuth, async (req: AuthRequest, res):
   }
 });
 
+const MF_STATUS_URL = "https://www.pay.moneyfusion.net/paiementNotif/";
+
 // GET /api/payment/status/:token — check payment status
 router.get("/payment/status/:token", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   try {
@@ -307,6 +324,27 @@ router.get("/payment/status/:token", requireAuth, async (req: AuthRequest, res):
       .where(eq(paymentTransactionsTable.paymentId, req.params.token))
       .limit(1);
     if (!txn || txn.userId !== req.userId!) { res.status(404).json({ error: "Transaction not found" }); return; }
+
+    // If still pending, poll MoneyFusion directly for real-time status
+    if (txn.status === "pending" && txn.tokenPay) {
+      try {
+        const mfCheck = await fetch(`${MF_STATUS_URL}${txn.tokenPay}`, { signal: AbortSignal.timeout(8_000) });
+        const mfJson = await mfCheck.json() as any;
+        if (mfJson?.statut === true && mfJson?.data) {
+          const mfStatut = mfJson.data.statut;
+          if (mfStatut === "paid") {
+            // Trigger the payment completion logic inline
+            const newStatus = "completed";
+            await db.update(paymentTransactionsTable).set({ status: newStatus, updatedAt: new Date() }).where(eq(paymentTransactionsTable.id, txn.id));
+            txn.status = newStatus;
+          } else if (mfStatut === "failure" || mfStatut === "no paid") {
+            await db.update(paymentTransactionsTable).set({ status: "failed", updatedAt: new Date() }).where(eq(paymentTransactionsTable.id, txn.id));
+            txn.status = "failed";
+          }
+        }
+      } catch (_) { /* ignore MF polling errors — return DB status */ }
+    }
+
     res.json({ status: txn.status, amount: txn.amount, currency: txn.currency, type: txn.type, metadata: txn.metadata });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
