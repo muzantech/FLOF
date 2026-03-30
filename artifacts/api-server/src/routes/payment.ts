@@ -96,9 +96,11 @@ router.post("/payment/initiate", requireAuth, async (req: AuthRequest, res): Pro
       personal_Info: [{ label: "Email", value: user.email }],
     });
 
-    if (!mfOk || !mfData?.url) {
-      console.warn("[payment] MoneyFusion returned:", JSON.stringify(mfData));
-      res.json({ paymentUrl: `${APP_URL}/payment/test?id=${paymentId}`, paymentId, testMode: true });
+    if (!mfOk || !mfData?.statut || !mfData?.url) {
+      const mfMsg = mfData?.message || "Erreur de connexion au système de paiement";
+      console.warn("[payment] MoneyFusion échec:", JSON.stringify(mfData));
+      await db.update(paymentTransactionsTable).set({ status: "failed" }).where(eq(paymentTransactionsTable.paymentId, paymentId));
+      res.status(502).json({ error: `Paiement indisponible : ${mfMsg}` });
       return;
     }
 
@@ -279,9 +281,11 @@ router.post("/payment/subscription", requireAuth, async (req: AuthRequest, res):
       personal_Info: [{ label: "Email", value: user.email }],
     });
 
-    if (!mfOk || !mfData?.url) {
-      console.warn("[payment/subscription] MoneyFusion returned:", JSON.stringify(mfData));
-      res.json({ paymentUrl: `${APP_URL}/payment/test?id=${paymentId}`, paymentId, testMode: true });
+    if (!mfOk || !mfData?.statut || !mfData?.url) {
+      const mfMsg = mfData?.message || "Erreur de connexion au système de paiement";
+      console.warn("[payment/subscription] MoneyFusion échec:", JSON.stringify(mfData));
+      await db.update(paymentTransactionsTable).set({ status: "failed" }).where(eq(paymentTransactionsTable.paymentId, paymentId));
+      res.status(502).json({ error: `Paiement indisponible : ${mfMsg}` });
       return;
     }
 
@@ -292,90 +296,6 @@ router.post("/payment/subscription", requireAuth, async (req: AuthRequest, res):
     res.json({ paymentUrl: mfData.url, paymentId });
   } catch (err: any) {
     console.error("[payment/subscription] error:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// POST /api/payment/test-confirm — simulate a successful payment (test mode only)
-router.post("/payment/test-confirm", requireAuth, async (req: AuthRequest, res): Promise<void> => {
-  try {
-    const { paymentId } = req.body;
-    if (!paymentId) { res.status(400).json({ error: "paymentId requis" }); return; }
-
-    const [txn] = await db.select().from(paymentTransactionsTable)
-      .where(eq(paymentTransactionsTable.paymentId, paymentId))
-      .limit(1);
-
-    if (!txn || txn.userId !== req.userId!) { res.status(404).json({ error: "Transaction introuvable" }); return; }
-    if (txn.status !== "pending") { res.json({ success: true, alreadyProcessed: true }); return; }
-
-    // Mark as completed
-    await db.update(paymentTransactionsTable)
-      .set({ status: "completed", updatedAt: new Date() })
-      .where(eq(paymentTransactionsTable.id, txn.id));
-
-    const meta = txn.metadata as any || {};
-
-    if (txn.type === "coins") {
-      const coinsToAdd = meta.coins || 0;
-      if (coinsToAdd > 0) {
-        await db.update(usersTable)
-          .set({ coins: sql`coins + ${coinsToAdd}` })
-          .where(eq(usersTable.id, txn.userId));
-
-        await db.insert(coinTransactionsTable).values({
-          userId: txn.userId,
-          type: "credit",
-          category: "purchase",
-          amount: coinsToAdd,
-          description: `[TEST] Achat ${coinsToAdd} coins — paiement #${txn.paymentId.substring(0, 8)}`,
-          reference: txn.paymentId,
-        });
-
-        await createNotification(txn.userId, "payment", "💰 Paiement reçu (test)", `${coinsToAdd} coins ont été ajoutés à votre solde`);
-      }
-    }
-
-    if (txn.type === "subscription") {
-      const { plan, label, durationDays = 14, bonusCoins = 0 } = meta;
-
-      await db.update(subscriptionsTable)
-        .set({ isActive: false, cancelledAt: new Date() })
-        .where(eq(subscriptionsTable.userId, txn.userId));
-
-      const nextBilling = new Date();
-      nextBilling.setDate(nextBilling.getDate() + durationDays);
-
-      await db.insert(subscriptionsTable).values({
-        userId: txn.userId,
-        planName: plan,
-        pricePerMonth: txn.amount,
-        bonusCoins,
-        isActive: true,
-        nextBillingAt: nextBilling,
-      });
-
-      if (bonusCoins > 0) {
-        await db.update(usersTable)
-          .set({ coins: sql`coins + ${bonusCoins}` })
-          .where(eq(usersTable.id, txn.userId));
-
-        await db.insert(coinTransactionsTable).values({
-          userId: txn.userId,
-          type: "credit",
-          category: "subscription_bonus",
-          amount: bonusCoins,
-          description: `[TEST] Bonus ${label} — coins offerts`,
-          reference: `sub_test_${txn.paymentId.substring(0, 8)}`,
-        });
-      }
-
-      await createNotification(txn.userId, "subscription", "🎉 Abonnement activé ! (test)", `Votre abonnement ${label} est actif pour ${durationDays} jours`);
-    }
-
-    res.json({ success: true });
-  } catch (err: any) {
-    console.error("[payment] test-confirm error:", err);
     res.status(500).json({ error: err.message });
   }
 });

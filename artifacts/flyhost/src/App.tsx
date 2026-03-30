@@ -34,7 +34,6 @@ import ServersPage from "@/pages/servers";
 import ServerDetailPage from "@/pages/server-detail";
 import EditorPage from "@/pages/editor";
 import PaymentCallbackPage from "@/pages/payment-callback";
-import PaymentTestPage from "@/pages/payment-test";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -121,7 +120,6 @@ function Router() {
 
       {/* Payment Routes */}
       <Route path="/payment/callback"><ProtectedRoute component={PaymentCallbackPage} /></Route>
-      <Route path="/payment/test"><ProtectedRoute component={PaymentTestPage} /></Route>
 
       {/* Public Routes */}
       <Route path="/status" component={StatusPage} />
