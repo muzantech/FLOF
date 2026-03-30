@@ -47,13 +47,13 @@ router.post("/auth/register", async (req, res): Promise<void> => {
 
   const existing = await db.select().from(usersTable).where(eq(usersTable.email, email)).limit(1);
   if (existing.length > 0) {
-    res.status(400).json({ error: "Email already in use" });
+    res.status(400).json({ error: "Cet email est déjà utilisé" });
     return;
   }
 
   const existingUsername = await db.select().from(usersTable).where(eq(usersTable.username, username)).limit(1);
   if (existingUsername.length > 0) {
-    res.status(400).json({ error: "Username already taken" });
+    res.status(400).json({ error: "Ce nom d'utilisateur est déjà pris" });
     return;
   }
 
