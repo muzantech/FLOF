@@ -1,7 +1,8 @@
 import { Router, type IRouter } from "express";
-import { db, teamsTable, teamMembersTable, usersTable } from "@workspace/db";
-import { eq, and, sql } from "drizzle-orm";
+import { db, teamsTable, teamMembersTable, usersTable, projectsTable } from "@workspace/db";
+import { eq, and, sql, isNull } from "drizzle-orm";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
+import { createNotification } from "./notifications";
 
 const router: IRouter = Router();
 
@@ -211,6 +212,19 @@ router.post("/teams/:teamId/members", requireAuth, async (req: AuthRequest, res)
       .values({ teamId, userId: targetUser.id, role })
       .returning();
 
+    // Fetch team name for notification
+    const [team] = await db.select().from(teamsTable).where(eq(teamsTable.id, teamId)).limit(1);
+    const inviterRow = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+    const inviterName = inviterRow[0]?.name ?? "Quelqu'un";
+
+    createNotification(
+      targetUser.id,
+      "team_invite",
+      `Invitation à l'équipe ${team?.name ?? ""}`,
+      `${inviterName} vous a ajouté à l'équipe "${team?.name}" en tant que ${role}.`,
+      { teamId, teamName: team?.name, role },
+    ).catch(() => {});
+
     res.status(201).json({
       ...member,
       name: targetUser.name,
@@ -254,6 +268,93 @@ router.delete("/teams/:teamId/members/:memberId", requireAuth, async (req: AuthR
     if (!canRemove) { res.status(403).json({ error: "Permission insuffisante" }); return; }
 
     await db.delete(teamMembersTable).where(eq(teamMembersTable.id, memberId));
+    res.sendStatus(204);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /teams/:teamId/projects — list projects belonging to this team
+router.get("/teams/:teamId/projects", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const teamId = parseInt(req.params.teamId, 10);
+    if (isNaN(teamId)) { res.status(400).json({ error: "teamId invalide" }); return; }
+
+    const isMember = await db
+      .select()
+      .from(teamMembersTable)
+      .where(and(eq(teamMembersTable.teamId, teamId), eq(teamMembersTable.userId, req.userId!)))
+      .limit(1);
+    if (isMember.length === 0) { res.status(403).json({ error: "Accès refusé" }); return; }
+
+    const projects = await db
+      .select()
+      .from(projectsTable)
+      .where(and(eq(projectsTable.teamId, teamId), eq(projectsTable.status, "active")));
+
+    res.json(projects);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /teams/:teamId/projects — assign a project to this team
+router.post("/teams/:teamId/projects", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const teamId = parseInt(req.params.teamId, 10);
+    if (isNaN(teamId)) { res.status(400).json({ error: "teamId invalide" }); return; }
+
+    const myMembership = await db
+      .select()
+      .from(teamMembersTable)
+      .where(and(eq(teamMembersTable.teamId, teamId), eq(teamMembersTable.userId, req.userId!)))
+      .limit(1);
+    if (myMembership.length === 0) { res.status(403).json({ error: "Accès refusé" }); return; }
+
+    const { projectId } = req.body;
+    if (!projectId) { res.status(400).json({ error: "projectId requis" }); return; }
+
+    const [project] = await db
+      .select()
+      .from(projectsTable)
+      .where(and(eq(projectsTable.id, parseInt(projectId, 10)), eq(projectsTable.userId, req.userId!)))
+      .limit(1);
+    if (!project) { res.status(404).json({ error: "Projet introuvable ou vous n'en êtes pas propriétaire" }); return; }
+
+    const [updated] = await db
+      .update(projectsTable)
+      .set({ teamId })
+      .where(eq(projectsTable.id, project.id))
+      .returning();
+
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── DELETE /teams/:teamId/projects/:projectId — unassign project from team
+router.delete("/teams/:teamId/projects/:projectId", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const teamId = parseInt(req.params.teamId, 10);
+    const projectId = parseInt(req.params.projectId, 10);
+    if (isNaN(teamId) || isNaN(projectId)) { res.status(400).json({ error: "Paramètres invalides" }); return; }
+
+    const isMember = await db
+      .select()
+      .from(teamMembersTable)
+      .where(and(eq(teamMembersTable.teamId, teamId), eq(teamMembersTable.userId, req.userId!)))
+      .limit(1);
+    if (isMember.length === 0) { res.status(403).json({ error: "Accès refusé" }); return; }
+
+    const [project] = await db
+      .select()
+      .from(projectsTable)
+      .where(and(eq(projectsTable.id, projectId), eq(projectsTable.teamId, teamId)))
+      .limit(1);
+    if (!project) { res.status(404).json({ error: "Projet introuvable dans cette équipe" }); return; }
+
+    await db.update(projectsTable).set({ teamId: null }).where(eq(projectsTable.id, projectId));
     res.sendStatus(204);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

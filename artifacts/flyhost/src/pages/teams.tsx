@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery, useMutation } from "@tanstack/react-query";
 import { AppLayout } from "@/components/layout";
 import {
   useListTeams,
@@ -10,8 +10,8 @@ import {
   useListTeamMembers,
   useInviteTeamMember,
   useRemoveTeamMember,
+  useListProjects,
   getListTeamsQueryKey,
-  getListTeamMembersQueryKey,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -167,13 +167,50 @@ function InviteDialog({ teamId, onSuccess }: { teamId: number; onSuccess: () => 
 function TeamManageDialog({ team, onDeleted }: { team: any; onDeleted: () => void }) {
   const [open, setOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [addProjectOpen, setAddProjectOpen] = useState(false);
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+
   const { data: members, refetch: refetchMembers } = useListTeamMembers(team.id, {
     query: { enabled: open },
   });
+
+  const teamProjectsKey = [`/api/teams/${team.id}/projects`];
+  const { data: teamProjects, refetch: refetchTeamProjects } = useQuery<any[]>({
+    queryKey: teamProjectsKey,
+    queryFn: () => fetch(`/api/teams/${team.id}/projects`).then((r) => r.json()),
+    enabled: open,
+  });
+
+  const { data: allProjects } = useListProjects({}, { query: { enabled: open && addProjectOpen } });
+
   const { mutateAsync: removeMember, isPending: removing } = useRemoveTeamMember();
+  const { mutateAsync: addProject, isPending: addingProject } = useMutation<any, Error, string>({
+    mutationFn: (projectId: string) =>
+      fetch(`/api/teams/${team.id}/projects`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: parseInt(projectId, 10) }),
+      }).then(async (r) => {
+        if (!r.ok) { const b = await r.json(); throw new Error(b.error); }
+        return r.json();
+      }),
+    onSuccess: () => { refetchTeamProjects(); queryClient.invalidateQueries({ queryKey: getListTeamsQueryKey() }); },
+  });
+  const { mutateAsync: removeProject, isPending: removingProject } = useMutation<void, Error, number>({
+    mutationFn: (projectId: number) =>
+      fetch(`/api/teams/${team.id}/projects/${projectId}`, { method: "DELETE" }).then(async (r) => {
+        if (!r.ok) { const b = await r.json(); throw new Error(b.error); }
+      }),
+    onSuccess: () => { refetchTeamProjects(); },
+  });
+
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  const unassignedProjects = (allProjects ?? []).filter(
+    (p: any) => !p.teamId && !(teamProjects ?? []).find((tp: any) => tp.id === p.id),
+  );
 
   const handleRemoveMember = async (memberId: number, memberName: string) => {
     try {
@@ -181,6 +218,27 @@ function TeamManageDialog({ team, onDeleted }: { team: any; onDeleted: () => voi
       toast({ title: `${memberName} retiré de l'équipe` });
       refetchMembers();
       queryClient.invalidateQueries({ queryKey: getListTeamsQueryKey() });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Erreur", description: err.message });
+    }
+  };
+
+  const handleAddProject = async () => {
+    if (!selectedProjectId) return;
+    try {
+      await addProject(selectedProjectId);
+      toast({ title: "Projet ajouté à l'équipe" });
+      setAddProjectOpen(false);
+      setSelectedProjectId("");
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Erreur", description: err.message });
+    }
+  };
+
+  const handleRemoveProject = async (projectId: number, projectName: string) => {
+    try {
+      await removeProject(projectId);
+      toast({ title: `${projectName} retiré de l'équipe` });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Erreur", description: err.message });
     }
@@ -203,7 +261,7 @@ function TeamManageDialog({ team, onDeleted }: { team: any; onDeleted: () => voi
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setConfirmDelete(false); }}>
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setConfirmDelete(false); setAddProjectOpen(false); } }}>
       <DialogTrigger asChild>
         <Button
           variant="outline"
@@ -213,7 +271,7 @@ function TeamManageDialog({ team, onDeleted }: { team: any; onDeleted: () => voi
           <Settings className="w-3.5 h-3.5" /> Gérer
         </Button>
       </DialogTrigger>
-      <DialogContent className="bg-zinc-900 border-zinc-800 max-w-lg">
+      <DialogContent className="bg-zinc-900 border-zinc-800 max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-yellow-400/10 border border-yellow-400/20 flex items-center justify-center">
@@ -252,7 +310,7 @@ function TeamManageDialog({ team, onDeleted }: { team: any; onDeleted: () => voi
                 />
               )}
             </div>
-            <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
               {!members ? (
                 <div className="h-10 rounded-lg bg-zinc-800/50 animate-pulse" />
               ) : members.length === 0 ? (
@@ -299,6 +357,85 @@ function TeamManageDialog({ team, onDeleted }: { team: any; onDeleted: () => voi
                         </>
                       )}
                     </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Projects section */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+                <FolderGit2 className="w-4 h-4 text-zinc-500" />
+                Projets {teamProjects ? `(${teamProjects.length})` : ""}
+              </h4>
+              {(team.myRole === "owner" || team.myRole === "admin") && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setAddProjectOpen(!addProjectOpen)}
+                  className="text-xs text-zinc-500 hover:text-yellow-400 gap-1.5 h-7"
+                >
+                  <Plus className="w-3 h-3" /> Ajouter
+                </Button>
+              )}
+            </div>
+
+            {/* Add project panel */}
+            {addProjectOpen && (
+              <div className="mb-3 p-3 rounded-lg border border-yellow-400/20 bg-yellow-400/5 space-y-2">
+                <p className="text-xs text-zinc-400">Choisissez un projet à associer à cette équipe :</p>
+                {unassignedProjects.length === 0 ? (
+                  <p className="text-xs text-zinc-600">Aucun projet disponible (tous déjà assignés).</p>
+                ) : (
+                  <div className="flex gap-2">
+                    <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
+                      <SelectTrigger className="bg-zinc-800 border-zinc-700 text-sm h-8 flex-1">
+                        <SelectValue placeholder="Sélectionner un projet…" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-zinc-900 border-zinc-800">
+                        {unassignedProjects.map((p: any) => (
+                          <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      size="sm"
+                      disabled={!selectedProjectId || addingProject}
+                      onClick={handleAddProject}
+                      className="bg-yellow-400 text-black hover:bg-yellow-300 font-semibold h-8 px-3"
+                    >
+                      {addingProject ? "..." : "Ajouter"}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              {!teamProjects ? (
+                <div className="h-10 rounded-lg bg-zinc-800/50 animate-pulse" />
+              ) : teamProjects.length === 0 ? (
+                <p className="text-sm text-zinc-600 text-center py-3">Aucun projet associé</p>
+              ) : (
+                teamProjects.map((p: any) => (
+                  <div key={p.id} className="flex items-center justify-between p-2.5 rounded-lg border border-zinc-800 bg-zinc-800/20 text-sm">
+                    <div className="min-w-0">
+                      <span className="text-zinc-300 font-medium truncate block">{p.name}</span>
+                      <span className="text-xs text-zinc-600">{p.slug}.flyhost.app</span>
+                    </div>
+                    {(team.myRole === "owner" || team.myRole === "admin") && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        disabled={removingProject}
+                        onClick={() => handleRemoveProject(p.id, p.name)}
+                        className="w-6 h-6 text-zinc-600 hover:text-red-400 hover:bg-red-500/10 flex-shrink-0 ml-2"
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    )}
                   </div>
                 ))
               )}

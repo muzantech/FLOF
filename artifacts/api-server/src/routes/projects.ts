@@ -69,13 +69,14 @@ router.patch("/projects/:projectId", requireAuth, async (req: AuthRequest, res):
     return;
   }
   
-  const { name, description, framework, gitRepo, gitBranch } = req.body;
+  const { name, description, framework, gitRepo, gitBranch, teamId } = req.body;
   const [project] = await db.update(projectsTable).set({
     ...(name !== undefined && { name }),
     ...(description !== undefined && { description }),
     ...(framework !== undefined && { framework }),
     ...(gitRepo !== undefined && { gitRepo }),
     ...(gitBranch !== undefined && { gitBranch }),
+    ...(teamId !== undefined && { teamId: teamId === null ? null : parseInt(teamId, 10) }),
   }).where(eq(projectsTable.id, projectId)).returning();
   
   res.json(project);
