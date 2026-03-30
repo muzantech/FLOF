@@ -81,49 +81,55 @@ router.post("/auth/register", async (req, res): Promise<void> => {
 });
 
 router.post("/auth/login", async (req, res): Promise<void> => {
-  const { email, password } = req.body;
-  const identifier = email; // can be email or username
-  if (!identifier || !password) {
-    res.status(400).json({ error: "Email/username and password required" });
-    return;
-  }
-
-  // Try by email first, then by username
-  const isEmail = identifier.includes("@");
-  let user;
-  if (isEmail) {
-    [user] = await db.select().from(usersTable).where(eq(usersTable.email, identifier)).limit(1);
-  } else {
-    [user] = await db.select().from(usersTable).where(eq(usersTable.username, identifier)).limit(1);
-  }
-
-  // Fallback: if not found by email, try username and vice versa
-  if (!user) {
-    if (isEmail) {
-      [user] = await db.select().from(usersTable).where(eq(usersTable.username, identifier)).limit(1);
-    } else {
-      [user] = await db.select().from(usersTable).where(eq(usersTable.email, identifier)).limit(1);
+  try {
+    const { email, password } = req.body;
+    const identifier = email; // can be email or username
+    if (!identifier || !password) {
+      res.status(400).json({ error: "Email/username and password required" });
+      return;
     }
-  }
 
-  if (!user) {
-    res.status(401).json({ error: "Identifiants invalides" });
-    return;
-  }
+    // Try by email first, then by username
+    const isEmail = identifier.includes("@");
+    let user;
+    if (isEmail) {
+      [user] = await db.select().from(usersTable).where(eq(usersTable.email, identifier)).limit(1);
+    } else {
+      [user] = await db.select().from(usersTable).where(eq(usersTable.username, identifier)).limit(1);
+    }
 
-  const valid = await bcrypt.compare(password, user.passwordHash);
-  if (!valid) {
-    res.status(401).json({ error: "Invalid credentials" });
-    return;
-  }
+    // Fallback: if not found by email, try username and vice versa
+    if (!user) {
+      if (isEmail) {
+        [user] = await db.select().from(usersTable).where(eq(usersTable.username, identifier)).limit(1);
+      } else {
+        [user] = await db.select().from(usersTable).where(eq(usersTable.email, identifier)).limit(1);
+      }
+    }
 
-  if (user.banned) {
-    res.status(403).json({ error: "Votre compte a été banni. Contactez le support." });
-    return;
-  }
+    if (!user) {
+      res.status(401).json({ error: "Identifiants invalides" });
+      return;
+    }
 
-  const token = generateToken(user.id);
-  res.json({ token, user: publicUser(user) });
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) {
+      res.status(401).json({ error: "Invalid credentials" });
+      return;
+    }
+
+    if (user.banned) {
+      res.status(403).json({ error: "Votre compte a été banni. Contactez le support." });
+      return;
+    }
+
+    const token = generateToken(user.id);
+    res.json({ token, user: publicUser(user) });
+  } catch (err: any) {
+    const cause = err?.cause?.message || err?.cause?.code || "";
+    console.error("[auth/login] Error:", err?.message, "| Cause:", cause, err?.stack);
+    res.status(500).json({ error: err?.message || "Internal server error", cause });
+  }
 });
 
 router.post("/auth/logout", (_req, res): void => {
