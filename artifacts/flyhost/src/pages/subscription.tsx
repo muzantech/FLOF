@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { FlyLayout } from "@/components/fly-layout";
+import PaymentPhoneModal from "@/components/payment-phone-modal";
 
 const accent = "#FACC15";
 const accentDim = "rgba(250,204,21,0.10)";
@@ -47,6 +48,7 @@ export default function SubscriptionPage() {
   const [toast, setToast] = useState<{ msg: string; type: string } | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
   const [redirecting, setRedirecting] = useState<string | null>(null);
+  const [modalPlan, setModalPlan] = useState<typeof PLANS[0] | null>(null);
 
   function showToast(msg: string, type = "info") {
     setToast({ msg, type });
@@ -60,17 +62,18 @@ export default function SubscriptionPage() {
       .catch(() => {});
   }, []);
 
-  async function subscribe(planId: string) {
+  async function subscribe(planId: string, phone: string) {
     setLoading(planId);
     try {
       const res = await fetch("/api/payment/subscription", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: planId }),
+        body: JSON.stringify({ plan: planId, phone }),
       });
       const data = await res.json();
       if (res.ok && data.paymentUrl) {
         setRedirecting(planId);
+        setModalPlan(null);
         showToast("Redirection vers le paiement...", "info");
         setTimeout(() => { window.location.href = data.paymentUrl; }, 1200);
       } else {
@@ -179,7 +182,7 @@ export default function SubscriptionPage() {
                 <div style={{ width: "100%", padding: "14px", borderRadius: "14px", background: green, color: "white", fontWeight: 700, fontSize: "15px", textAlign: "center" }}>✓ Plan actif</div>
               ) : (
                 <button
-                  onClick={() => subscribe(plan.id)}
+                  onClick={() => setModalPlan(plan)}
                   disabled={isLoading}
                   style={{
                     width: "100%", padding: "14px", borderRadius: "14px", border: plan.popular ? "none" : `2px solid ${accent}`,
@@ -261,6 +264,19 @@ export default function SubscriptionPage() {
           ))}
         </div>
       </div>
+
+      {/* Payment Phone Modal */}
+      {modalPlan && (
+        <PaymentPhoneModal
+          open={!!modalPlan}
+          onClose={() => { if (!loading) setModalPlan(null); }}
+          onConfirm={(phone) => subscribe(modalPlan.id, phone)}
+          loading={!!loading}
+          title={`${modalPlan.name}`}
+          description={`Abonnement ${modalPlan.durationDays} jours · +${modalPlan.bonus} coins bonus`}
+          amount={modalPlan.priceFcfa}
+        />
+      )}
     </FlyLayout>
   );
 }

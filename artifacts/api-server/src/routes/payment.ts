@@ -47,7 +47,7 @@ router.get("/payment/packages", requireAuth, (_req, res): void => {
 // POST /api/payment/initiate — start a MoneyFusion payment
 router.post("/payment/initiate", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   try {
-    const { packageId, promoCode } = req.body;
+    const { packageId, promoCode, phone } = req.body;
     const pkg = COINS_PACKAGES.find(p => p.id === packageId);
     if (!pkg) { res.status(400).json({ error: "Package invalide" }); return; }
 
@@ -87,8 +87,8 @@ router.post("/payment/initiate", requireAuth, async (req: AuthRequest, res): Pro
     // Call MoneyFusion via VPS relay (whitelisted IP)
     const { ok: mfOk, data: mfData } = await callMoneyFusion({
       totalPrice: finalAmount,
-      article: [{ FlyHost: finalAmount }],
-      numeroSend: "237000000000",
+      article: [{ [pkg.label]: finalAmount }],
+      numeroSend: phone || "237000000000",
       nomclient: user.name || user.username,
       personal_Info: [{ paymentId, userId: req.userId, email: user.email }],
       return_url: `${APP_URL}/callback?id=${paymentId}`,
@@ -261,7 +261,7 @@ router.post("/payment/webhook", async (req, res): Promise<void> => {
 // POST /api/payment/subscription — initiate MoneyFusion payment for a subscription plan
 router.post("/payment/subscription", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   try {
-    const { plan } = req.body;
+    const { plan, phone } = req.body;
     const SUB_PLANS: Record<string, { label: string; priceFcfa: number; durationDays: number; bonusCoins: number }> = {
       starter:  { label: "Starter",  priceFcfa: 500,  durationDays: 14, bonusCoins: 100 },
       pro:      { label: "Pro",      priceFcfa: 1500, durationDays: 14, bonusCoins: 350 },
@@ -289,7 +289,7 @@ router.post("/payment/subscription", requireAuth, async (req: AuthRequest, res):
     const { ok: mfOk, data: mfData } = await callMoneyFusion({
       totalPrice: planConfig.priceFcfa,
       article: [{ [`Abonnement ${planConfig.label}`]: planConfig.priceFcfa }],
-      numeroSend: "237000000000",
+      numeroSend: phone || "237000000000",
       nomclient: user.name || user.username,
       personal_Info: [{ paymentId, userId: req.userId, plan, email: user.email }],
       return_url: `${APP_URL}/callback?id=${paymentId}`,
