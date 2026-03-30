@@ -125,12 +125,15 @@ git push https://${GITHUB_PERSONAL_ACCESS_TOKEN}@github.com/muzantech/FLOF.git m
 │   │   └── src/
 │   │       ├── index.ts          # Entry point + proxy server (port 3000)
 │   │       ├── routes/
-│   │       │   ├── auth.ts       # Auth JWT
+│   │       │   ├── auth.ts       # Auth JWT + email vérification
 │   │       │   ├── payment.ts    # MoneyFusion payment flow
-│   │       │   ├── admin.ts      # Admin panel
+│   │       │   ├── admin.ts      # Admin panel + stats
+│   │       │   ├── deploy.ts     # Déploiements + emails post-deploy
 │   │       │   ├── notifications.ts
 │   │       │   └── ...
-│   │       ├── mailer.ts         # Nodemailer SMTP
+│   │       ├── mailer.ts         # Nodemailer SMTP + templates (welcome, verify, deploymentSuccess, deploymentFailed)
+│   │       ├── backup.ts         # Backup cron (2h00 quotidien, 7 jours rotation)
+│   │       ├── health.ts         # Health endpoint enrichi (DB latence, RAM, uptime)
 │   │       └── subdomain-proxy.ts
 │   └── flyhost/                  # React + Vite frontend
 │       └── src/
@@ -167,12 +170,31 @@ git push https://${GITHUB_PERSONAL_ACCESS_TOKEN}@github.com/muzantech/FLOF.git m
 - `notifications` — userId, type, title, message, read, metadata
 - `server_subdomains` — subdomain, pterodactylIdentifier, port, ip, userId
 - `announcements` — title, content, type, active
+- `revoked_tokens` — token (PK), revokedAt — révocation JWT à la déconnexion
+
+## Sécurité & Fiabilité
+
+### Authentification renforcée
+- **JWT 7 jours** avec révocation via table `revoked_tokens` (token blacklisté à la déconnexion)
+- **Email vérifié obligatoire** avant connexion — le login retourne une erreur explicite sinon
+- **Mot de passe minimum 8 caractères** — validé côté API
+- **Messages d'erreur unifiés** en français, sans fuite d'information (anti-enumeration)
+- **Renvoi email vérification** : `POST /api/auth/resend-verification-public` (public, sans auth, réponse identique si email inexistant)
+
+### Monitoring & Backup
+- **Health endpoint enrichi** : `GET /api/healthz` retourne statut, DB latence (ms), uptime (s), RAM utilisée (%)
+- **Backup automatique** : cron node-cron chaque nuit à 2h00 → JSON dump de 14 tables → rotation 7 jours dans `./backups/`
+
+### Emails transactionnels
+- **Déploiement réussi** : email envoyé automatiquement avec lien vers le projet
+- **Déploiement échoué** : email envoyé avec message d'erreur (non-bloquant via `.catch()`)
 
 ## Routes API
 
 ### Auth
 - `POST /api/auth/register` — Inscription (+10 coins, code referral, → /onboarding)
-- `POST /api/auth/login` — Connexion (JWT, daily coins)
+- `POST /api/auth/login` — Connexion (JWT 7j, daily coins, bloqué si email non vérifié)
+- `POST /api/auth/resend-verification-public` — Renvoyer email vérification (public, sans auth)
 - `POST /api/auth/daily-login` — +5 coins/jour
 - `GET/PATCH /api/auth/me` — Profil courant
 
@@ -197,9 +219,13 @@ git push https://${GITHUB_PERSONAL_ACCESS_TOKEN}@github.com/muzantech/FLOF.git m
 - `DELETE /api/servers/:uuid` — Supprimer
 
 ### Admin
-- `GET /api/admin/stats` — Statistiques globales
+- `GET /api/admin/stats` — Stats plateforme : totalUsers, newUsersToday, deploymentsToday, revenueMonth (FCFA)
 - `GET /api/admin/users` — Gestion utilisateurs
+- `PATCH /api/admin/users/:id/coins` — Modifier coins d'un utilisateur
 - `POST /api/admin/promo-codes` — Créer code promo
+
+### Monitoring
+- `GET /api/healthz` — Statut API (status, db.latencyMs, uptime, memory.usedPct, timestamp)
 
 ### Abonnements
 - `GET /api/subscriptions/me` — Abonnement actif
