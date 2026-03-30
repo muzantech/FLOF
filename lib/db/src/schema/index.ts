@@ -12,3 +12,4 @@ export * from "./metrics";
 export * from "./payments";
 export * from "./subdomains";
 export * from "./announcements";
+export * from "./revoked_tokens";

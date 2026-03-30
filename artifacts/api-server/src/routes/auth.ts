@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import bcrypt from "bcryptjs";
 import { db, usersTable, coinTransactionsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
-import { requireAuth, generateToken, type AuthRequest } from "../middlewares/auth";
+import { requireAuth, generateToken, revokeToken, type AuthRequest } from "../middlewares/auth";
 import crypto from "crypto";
 import { sendEmail, emailTemplates } from "../mailer";
 
@@ -36,7 +36,12 @@ function publicUser(user: any) {
 router.post("/auth/register", async (req, res): Promise<void> => {
   const { name, email, password, username } = req.body;
   if (!name || !email || !password || !username) {
-    res.status(400).json({ error: "All fields are required" });
+    res.status(400).json({ error: "Tous les champs sont requis" });
+    return;
+  }
+
+  if (typeof password !== "string" || password.length < 8) {
+    res.status(400).json({ error: "Le mot de passe doit contenir au moins 8 caractères" });
     return;
   }
 
@@ -114,12 +119,17 @@ router.post("/auth/login", async (req, res): Promise<void> => {
 
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
-      res.status(401).json({ error: "Invalid credentials" });
+      res.status(401).json({ error: "Identifiants invalides" });
       return;
     }
 
     if (user.banned) {
       res.status(403).json({ error: "Votre compte a été banni. Contactez le support." });
+      return;
+    }
+
+    if (!user.emailVerified) {
+      res.status(403).json({ error: "Veuillez vérifier votre adresse email avant de vous connecter." });
       return;
     }
 
@@ -131,7 +141,10 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   }
 });
 
-router.post("/auth/logout", (_req, res): void => {
+router.post("/auth/logout", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  if (req.tokenJti && req.userId) {
+    await revokeToken(req.tokenJti, req.userId).catch(() => {});
+  }
   res.json({ success: true });
 });
 
