@@ -9,7 +9,7 @@ import { sendEmail, emailTemplates } from "../mailer";
 
 const router: IRouter = Router();
 
-const MONEYFUSION_URL = process.env.MONEYFUSION_PAY_URL || "https://www.pay.moneyfusion.net/FLYHOST/695a74a171fba951834de2f7/pay/";
+const MONEYFUSION_URL = process.env.MONEYFUSION_PAY_URL || "https://www.pay.moneyfusion.net/FLYHOST/8a106a9cd82c8779/pay/";
 const APP_URL = process.env.APP_URL || "https://flihost.site";
 // Relay: appel MoneyFusion depuis le VPS (IP 173.212.226.118 — whitelistée dans MoneyFusion)
 const MF_RELAY_URL = process.env.MF_RELAY_URL || "https://flihost.site/api/payment/mf-relay";
