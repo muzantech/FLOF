@@ -1,9 +1,18 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "@/components/layout";
-import { useListTeams, useCreateTeam, useListProjects } from "@workspace/api-client-react";
+import {
+  useListTeams,
+  useCreateTeam,
+  useListTeamMembers,
+  useInviteTeamMember,
+  useRemoveTeamMember,
+  getListTeamsQueryKey,
+  getListTeamMembersQueryKey,
+} from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,6 +24,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import {
   Users,
@@ -23,8 +39,9 @@ import {
   Crown,
   UserPlus,
   FolderGit2,
-  ArrowRight,
   Calendar,
+  Trash2,
+  X,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow } from "date-fns";
@@ -39,12 +56,154 @@ const createTeamSchema = z.object({
     .regex(/^[a-z0-9-]+$/, "Minuscules, chiffres et tirets uniquement"),
 });
 
-function TeamManageDialog({ team }: { team: any }) {
-  const { data: projects } = useListProjects();
-  const { user } = useAuth();
+const inviteSchema = z.object({
+  email: z.string().email("Email invalide"),
+  role: z.enum(["member", "admin", "viewer"]),
+});
+
+const ROLE_LABELS: Record<string, string> = {
+  owner: "Propriétaire",
+  admin: "Admin",
+  member: "Membre",
+  viewer: "Lecteur",
+};
+
+function InviteDialog({ teamId, onSuccess }: { teamId: number; onSuccess: () => void }) {
+  const [open, setOpen] = useState(false);
+  const { mutateAsync: invite, isPending } = useInviteTeamMember();
+  const { toast } = useToast();
+
+  const form = useForm({
+    resolver: zodResolver(inviteSchema),
+    defaultValues: { email: "", role: "member" as const },
+  });
+
+  const onSubmit = async (values: any) => {
+    try {
+      await invite({ teamId, data: { email: values.email, role: values.role } });
+      toast({ title: "Membre invité avec succès !" });
+      form.reset();
+      setOpen(false);
+      onSuccess();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Erreur", description: err.message });
+    }
+  };
 
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="ghost" className="text-xs text-zinc-500 hover:text-yellow-400 gap-1.5 h-7">
+          <UserPlus className="w-3 h-3" /> Inviter
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="bg-zinc-900 border-zinc-800 max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="text-white">Inviter un membre</DialogTitle>
+          <DialogDescription className="text-zinc-500">
+            Entrez l'email du compte FlyHost à inviter.
+          </DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-1">
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-zinc-300">Email</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="user@exemple.com"
+                      {...field}
+                      className="bg-zinc-800/50 border-zinc-700 focus:border-yellow-400/50"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="role"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-zinc-300">Rôle</FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormControl>
+                      <SelectTrigger className="bg-zinc-800/50 border-zinc-700">
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent className="bg-zinc-900 border-zinc-800">
+                      <SelectItem value="viewer">Lecteur</SelectItem>
+                      <SelectItem value="member">Membre</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <div className="flex justify-end gap-2 pt-1">
+              <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)} className="text-zinc-400">
+                Annuler
+              </Button>
+              <Button
+                type="submit"
+                disabled={isPending}
+                className="bg-yellow-400 text-black hover:bg-yellow-300 font-semibold"
+              >
+                {isPending ? "Envoi..." : "Inviter"}
+              </Button>
+            </div>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function TeamManageDialog({ team, onDeleted }: { team: any; onDeleted: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const { data: members, refetch: refetchMembers } = useListTeamMembers(team.id, {
+    query: { enabled: open },
+  });
+  const { mutateAsync: removeMember, isPending: removing } = useRemoveTeamMember();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const handleRemoveMember = async (memberId: number, memberName: string) => {
+    try {
+      await removeMember({ teamId: team.id, memberId });
+      toast({ title: `${memberName} retiré de l'équipe` });
+      refetchMembers();
+      queryClient.invalidateQueries({ queryKey: getListTeamsQueryKey() });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Erreur", description: err.message });
+    }
+  };
+
+  const handleDeleteTeam = async () => {
+    try {
+      const res = await fetch(`/api/teams/${team.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Erreur lors de la suppression");
+      }
+      toast({ title: "Équipe supprimée" });
+      setOpen(false);
+      queryClient.invalidateQueries({ queryKey: getListTeamsQueryKey() });
+      onDeleted();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Erreur", description: err.message });
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setConfirmDelete(false); }}>
       <DialogTrigger asChild>
         <Button
           variant="outline"
@@ -80,64 +239,107 @@ function TeamManageDialog({ team }: { team: any }) {
           <div>
             <div className="flex items-center justify-between mb-3">
               <h4 className="text-sm font-semibold text-white flex items-center gap-2">
-                <Users className="w-4 h-4 text-zinc-500" /> Membres
+                <Users className="w-4 h-4 text-zinc-500" />
+                Membres {members ? `(${members.length})` : ""}
               </h4>
-              <Button size="sm" variant="ghost" className="text-xs text-zinc-500 hover:text-yellow-400 gap-1.5 h-7">
-                <UserPlus className="w-3 h-3" /> Inviter
-              </Button>
+              {(team.myRole === "owner" || team.myRole === "admin") && (
+                <InviteDialog
+                  teamId={team.id}
+                  onSuccess={() => {
+                    refetchMembers();
+                    queryClient.invalidateQueries({ queryKey: getListTeamsQueryKey() });
+                  }}
+                />
+              )}
             </div>
-            <div className="space-y-2">
-              {/* Owner (current user) */}
-              <div className="flex items-center justify-between p-3 rounded-lg border border-zinc-800 bg-zinc-800/30">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-yellow-400/10 border border-yellow-400/20 flex items-center justify-center">
-                    <span className="text-xs font-bold text-yellow-400">{user?.name?.charAt(0).toUpperCase()}</span>
+            <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+              {!members ? (
+                <div className="h-10 rounded-lg bg-zinc-800/50 animate-pulse" />
+              ) : members.length === 0 ? (
+                <p className="text-sm text-zinc-600 text-center py-3">Aucun membre</p>
+              ) : (
+                members.map((m: any) => (
+                  <div
+                    key={m.id}
+                    className="flex items-center justify-between p-3 rounded-lg border border-zinc-800 bg-zinc-800/30"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center flex-shrink-0">
+                        <span className="text-xs font-bold text-zinc-300">
+                          {(m.name || m.email || "?").charAt(0).toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-white truncate">{m.name || m.username}</p>
+                        <p className="text-xs text-zinc-500 truncate">{m.email}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {m.role === "owner" ? (
+                        <div className="flex items-center gap-1 text-xs text-yellow-400">
+                          <Crown className="w-3 h-3" />
+                          <span>Propriétaire</span>
+                        </div>
+                      ) : (
+                        <>
+                          <span className="text-xs text-zinc-500 hidden sm:block">
+                            {ROLE_LABELS[m.role] ?? m.role}
+                          </span>
+                          {(team.myRole === "owner" || team.myRole === "admin" || m.userId === user?.id) && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              disabled={removing}
+                              onClick={() => handleRemoveMember(m.id, m.name || m.email)}
+                              className="w-6 h-6 text-zinc-600 hover:text-red-400 hover:bg-red-500/10"
+                            >
+                              <X className="w-3 h-3" />
+                            </Button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-white">{user?.name}</p>
-                    <p className="text-xs text-zinc-500">{user?.email}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5 text-xs text-yellow-400">
-                  <Crown className="w-3 h-3" /> Propriétaire
-                </div>
-              </div>
+                ))
+              )}
             </div>
           </div>
 
-          {/* Projects section */}
-          <div>
-            <h4 className="text-sm font-semibold text-white flex items-center gap-2 mb-3">
-              <FolderGit2 className="w-4 h-4 text-zinc-500" /> Projets de l'équipe
-            </h4>
-            {projects && projects.length > 0 ? (
-              <div className="space-y-2">
-                {projects.slice(0, 3).map((project) => (
-                  <div key={project.id} className="flex items-center justify-between p-2.5 rounded-lg border border-zinc-800 bg-zinc-800/20 text-sm">
-                    <span className="text-zinc-300">{project.name}</span>
-                    <span className="text-xs text-zinc-600">{project.slug}.flyhost.app</span>
-                  </div>
-                ))}
-                {projects.length > 3 && (
-                  <p className="text-xs text-zinc-600 text-center">+{projects.length - 3} autres projets</p>
-                )}
-              </div>
-            ) : (
-              <p className="text-sm text-zinc-600 text-center py-3">Aucun projet associé</p>
-            )}
-          </div>
-
-          {/* Danger zone */}
-          <div className="pt-3 border-t border-zinc-800">
-            <p className="text-xs text-zinc-600 mb-2">Zone dangereuse</p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-red-800/40 text-red-400 hover:border-red-500/40 hover:bg-red-500/5 text-xs"
-            >
-              Supprimer l'équipe
-            </Button>
-          </div>
+          {/* Danger zone — owner only */}
+          {team.myRole === "owner" && (
+            <div className="pt-3 border-t border-zinc-800">
+              <p className="text-xs text-zinc-600 mb-2">Zone dangereuse</p>
+              {confirmDelete ? (
+                <div className="flex items-center gap-2">
+                  <p className="text-xs text-red-400 flex-1">Confirmer la suppression ?</p>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setConfirmDelete(false)}
+                    className="text-zinc-400 text-xs h-7"
+                  >
+                    Annuler
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleDeleteTeam}
+                    className="bg-red-600 hover:bg-red-500 text-white text-xs h-7 gap-1"
+                  >
+                    <Trash2 className="w-3 h-3" /> Supprimer
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setConfirmDelete(true)}
+                  className="border-red-800/40 text-red-400 hover:border-red-500/40 hover:bg-red-500/5 text-xs gap-1.5"
+                >
+                  <Trash2 className="w-3 h-3" /> Supprimer l'équipe
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -149,11 +351,23 @@ export default function TeamsPage() {
   const { data: teams, isLoading } = useListTeams();
   const { mutateAsync: createTeam, isPending } = useCreateTeam();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const form = useForm({
     resolver: zodResolver(createTeamSchema),
     defaultValues: { name: "", slug: "" },
   });
+
+  const nameValue = form.watch("name");
+
+  useEffect(() => {
+    if (!nameValue) return;
+    const auto = nameValue
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    form.setValue("slug", auto, { shouldValidate: false });
+  }, [nameValue]);
 
   const onSubmit = async (data: any) => {
     try {
@@ -161,17 +375,11 @@ export default function TeamsPage() {
       toast({ title: "Équipe créée !" });
       setIsDialogOpen(false);
       form.reset();
+      queryClient.invalidateQueries({ queryKey: getListTeamsQueryKey() });
     } catch (error: any) {
       toast({ variant: "destructive", title: "Erreur", description: error.message });
     }
   };
-
-  // Auto-fill slug from name
-  const nameValue = form.watch("name");
-  const autoSlug = nameValue
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 
   return (
     <AppLayout>
@@ -221,12 +429,14 @@ export default function TeamsPage() {
                         <FormLabel className="text-zinc-300">Identifiant URL</FormLabel>
                         <FormControl>
                           <Input
-                            placeholder={autoSlug || "acme-corp"}
+                            placeholder="acme-corp"
                             {...field}
                             className="bg-zinc-800/50 border-zinc-700 font-mono focus:border-yellow-400/50"
                           />
                         </FormControl>
-                        <p className="text-xs text-zinc-600">flyhost.app/team/{field.value || autoSlug || "slug"}</p>
+                        <p className="text-xs text-zinc-600">
+                          flyhost.app/team/{field.value || "slug"}
+                        </p>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -254,7 +464,7 @@ export default function TeamsPage() {
           </div>
         ) : teams && teams.length > 0 ? (
           <div className="space-y-3">
-            {teams.map((team) => (
+            {teams.map((team: any) => (
               <Card key={team.id} className="bg-zinc-900/50 border-zinc-800 hover:border-zinc-700 transition-colors">
                 <CardContent className="p-5 flex items-center justify-between">
                   <div className="flex items-center gap-4">
@@ -269,9 +479,14 @@ export default function TeamsPage() {
                   <div className="flex items-center gap-2">
                     <div className="hidden sm:flex items-center gap-1.5 text-xs text-zinc-600 mr-2">
                       <Users className="w-3.5 h-3.5" />
-                      <span>1 membre</span>
+                      <span>
+                        {team.memberCount ?? 1} membre{(team.memberCount ?? 1) > 1 ? "s" : ""}
+                      </span>
                     </div>
-                    <TeamManageDialog team={team} />
+                    <TeamManageDialog
+                      team={team}
+                      onDeleted={() => queryClient.invalidateQueries({ queryKey: getListTeamsQueryKey() })}
+                    />
                   </div>
                 </CardContent>
               </Card>
@@ -309,7 +524,7 @@ export default function TeamsPage() {
             {
               icon: Crown,
               title: "Rôles & permissions",
-              desc: "Propriétaire, Admin, Développeur — contrôlez les accès.",
+              desc: "Propriétaire, Admin, Membre, Lecteur — contrôlez les accès.",
             },
           ].map((feat) => (
             <div
