@@ -99,13 +99,16 @@ pnpm --filter @workspace/api-server run deploy
 
 ### Déployer le frontend en production (VPS)
 ```bash
-# Une seule commande — build + zip + upload + extraction dans /public/
+# Une seule commande — build + upload fichier par fichier dans /public/
 pnpm --filter @workspace/api-server run deploy:frontend
 
 # Script : artifacts/api-server/deploy-frontend.mjs
 # Container cible : b9ce2f9c (proxy+frontend, port 3000)
-# Les fichiers vont dans /public/ du container
-# Note : la connexion Wings de ce container est instable → retries automatiques
+# Méthode : upload direct via Wings upload URL (&directory=/public)
+#   → FIABLE : bypass le Wings daemon instable (pas de décompression ZIP)
+#   → Upload chaque fichier buildé + sitemap.xml + robots.txt individuellement
+# ⚠️ NE PAS utiliser Wings file/write ou files/decompress — le Wings daemon
+#    de ce container est instable et écrit du JSON brut au lieu du contenu
 ```
 
 ### Autres commandes utiles

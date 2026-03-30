@@ -6,19 +6,18 @@
  *   pnpm --filter @workspace/api-server run deploy:frontend
  *
  * Ce script :
- *   1. Build le frontend Vite (artifacts/flyhost → dist/)
- *   2. Zippe dist/ dans frontend-deploy.zip
- *   3. Uploade vers le container proxy b9ce2f9c
- *   4. Décompresse dans /public/ (écrase l'ancienne version)
- *   Note : le container proxy n'a pas besoin de redémarrage (fichiers statiques)
+ *   1. Build le frontend Vite (artifacts/flyhost → dist/public/)
+ *   2. Uploade chaque fichier directement dans /public/ du container
+ *      via l'URL d'upload Wings (méthode fiable — bypass Wings daemon)
+ *   3. Uploade aussi sitemap.xml et robots.txt depuis public/
+ *
+ * Note : le container proxy n'a pas besoin de redémarrage (fichiers statiques)
  */
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
-import { readdirSync, statSync, readFileSync, rmSync, mkdirSync, createReadStream } from "node:fs";
-import { tmpdir } from "node:os";
-import { createWriteStream } from "node:fs";
+import { readdirSync, statSync, readFileSync } from "node:fs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../..");
@@ -32,17 +31,72 @@ function ok(msg)   { console.log(`\x1b[32m[✓]\x1b[0m ${msg}`); }
 function err(msg)  { console.error(`\x1b[31m[✗]\x1b[0m ${msg}`); }
 function step(msg) { console.log(`\n\x1b[1m\x1b[33m▸ ${msg}\x1b[0m`); }
 
-async function proxyFetch(endpoint, opts = {}) {
-  const url = `${PTERODACTYL_URL}/api/client/servers/${PROXY_SERVER_ID}${endpoint}`;
-  return fetch(url, {
-    ...opts,
-    headers: {
-      "Authorization": `Bearer ${PTERODACTYL_CLIENT_KEY}`,
-      "Accept": "application/json",
-      "X-Requested-With": "XMLHttpRequest",
-      ...(opts.headers || {}),
-    },
-  });
+const MIME_TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".js":   "application/javascript",
+  ".css":  "text/css",
+  ".svg":  "image/svg+xml",
+  ".png":  "image/png",
+  ".jpg":  "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".ico":  "image/x-icon",
+  ".webp": "image/webp",
+  ".woff": "font/woff",
+  ".woff2":"font/woff2",
+  ".ttf":  "font/ttf",
+  ".json": "application/json",
+  ".txt":  "text/plain",
+  ".xml":  "text/xml",
+};
+
+function getMime(filePath) {
+  return MIME_TYPES[path.extname(filePath).toLowerCase()] || "application/octet-stream";
+}
+
+/** Obtient une URL d'upload signée Wings (valide quelques minutes) */
+async function getUploadUrl() {
+  const res = await fetch(
+    `${PTERODACTYL_URL}/api/client/servers/${PROXY_SERVER_ID}/files/upload`,
+    {
+      headers: {
+        "Authorization": `Bearer ${PTERODACTYL_CLIENT_KEY}`,
+        "Accept": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+      },
+    }
+  );
+  if (!res.ok) throw new Error(`Impossible d'obtenir l'URL d'upload : ${res.status}`);
+  const { attributes: { url } } = await res.json();
+  return url;
+}
+
+/** Upload un fichier directement dans targetDir du container via Wings upload */
+async function uploadFile(localPath, fileName, targetDir) {
+  const baseUrl = await getUploadUrl();
+  const uploadUrl = `${baseUrl}&directory=${encodeURIComponent(targetDir)}`;
+  const content = readFileSync(localPath);
+  const form = new FormData();
+  form.append("files", new Blob([content], { type: getMime(localPath) }), fileName);
+  const res = await fetch(uploadUrl, { method: "POST", body: form });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Upload échoué pour ${fileName} : HTTP ${res.status} ${body}`);
+  }
+}
+
+/** Liste récursivement tous les fichiers dans un dossier */
+function listFiles(dir, base = "") {
+  const results = [];
+  for (const entry of readdirSync(dir)) {
+    const full = path.join(dir, entry);
+    const rel  = base ? `${base}/${entry}` : entry;
+    if (statSync(full).isDirectory()) {
+      results.push(...listFiles(full, rel));
+    } else {
+      results.push({ full, rel });
+    }
+  }
+  return results;
 }
 
 // ─── Validation ───────────────────────────────────────────────────────────────
@@ -69,116 +123,74 @@ try {
   process.exit(1);
 }
 
-// ─── Step 2: Créer le ZIP ─────────────────────────────────────────────────────
+// ─── Step 2: Upload fichiers buildés dans /public/ ───────────────────────────
 
-step("Création du ZIP");
+step("Upload des fichiers dans /public/");
 
 const distDir = path.resolve(ROOT, "artifacts/flyhost/dist/public");
-const zipPath = path.join(tmpdir(), `flyhost-frontend-${Date.now()}.zip`);
+const allFiles = listFiles(distDir);
+log(`${allFiles.length} fichiers à déployer...`);
 
-const { default: archiver } = await import("archiver");
+let uploaded = 0;
+let failed = 0;
 
-await new Promise((resolve, reject) => {
-  const output = createWriteStream(zipPath);
-  const archive = archiver("zip", { zlib: { level: 6 } });
-  output.on("close", resolve);
-  archive.on("error", reject);
-  archive.pipe(output);
-  // Les fichiers seront dans public/ à l'intérieur du zip → décompressé dans /
-  archive.directory(distDir, "public");
-  archive.finalize();
-});
+for (const { full, rel } of allFiles) {
+  const parts = rel.split("/");
+  const fileName = parts.pop();
+  const subDir = parts.length > 0 ? `/public/${parts.join("/")}` : "/public";
 
-const zipSize = statSync(zipPath).size;
-ok(`ZIP créé : ${Math.round(zipSize / 1024)}KB → ${zipPath}`);
-
-// ─── Step 3: Upload ───────────────────────────────────────────────────────────
-
-step("Upload vers le container proxy");
-
-const uploadUrlRes = await proxyFetch("/files/upload");
-if (!uploadUrlRes.ok) {
-  err(`Échec obtention URL upload : ${uploadUrlRes.status}`);
-  process.exit(1);
-}
-const { attributes: { url: uploadUrl } } = await uploadUrlRes.json();
-log("URL d'upload obtenue");
-
-const zipBuffer = readFileSync(zipPath);
-const blob = new Blob([zipBuffer], { type: "application/zip" });
-const formData = new FormData();
-formData.append("files", blob, "frontend-deploy.zip");
-
-const uploadRes = await fetch(uploadUrl, { method: "POST", body: formData });
-rmSync(zipPath, { force: true });
-
-if (!uploadRes.ok) {
-  err(`Échec upload : ${uploadRes.status} ${await uploadRes.text()}`);
-  process.exit(1);
-}
-ok("ZIP uploadé");
-
-// ─── Step 4: Supprimer ancien /public ────────────────────────────────────────
-
-step("Remplacement des fichiers /public");
-
-// Supprimer les anciens fichiers dans /public (sauf proxy.js)
-const listRes = await proxyFetch("/files/list?directory=/public");
-if (listRes.ok) {
-  const { data } = await listRes.json();
-  const toDelete = data
-    .filter(f => f.attributes.name !== "proxy.js" && !f.attributes.name.startsWith("."))
-    .map(f => `/public/${f.attributes.name}`);
-  if (toDelete.length > 0) {
-    await proxyFetch("/files/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ root: "/", files: toDelete }),
-    });
-    log(`${toDelete.length} anciens fichiers supprimés`);
+  try {
+    await uploadFile(full, fileName, subDir);
+    uploaded++;
+    if (uploaded % 5 === 0 || uploaded === 1) log(`${uploaded}/${allFiles.length} uploadés...`);
+  } catch (e) {
+    err(`  Échec: ${rel} — ${e.message}`);
+    failed++;
   }
+
+  // Petite pause pour ne pas saturer l'API Wings
+  await new Promise(r => setTimeout(r, 150));
 }
 
-// Décompresser le zip dans / (le zip contient un dossier public/ à l'intérieur)
-for (let attempt = 1; attempt <= 3; attempt++) {
-  const decompressRes = await proxyFetch("/files/decompress", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ root: "/", file: "frontend-deploy.zip" }),
-  });
-  if (decompressRes.status === 204) { ok("Décompression réussie"); break; }
-  if (decompressRes.status === 504) {
-    log(`Timeout (tentative ${attempt}/3) — décompression en cours...`);
-    await new Promise(r => setTimeout(r, 10000));
-    ok("Décompression réussie (timeout accepté)"); break;
+ok(`${uploaded} fichiers uploadés${failed > 0 ? `, ${failed} échecs` : ""}`);
+
+// ─── Step 3: Upload fichiers statiques (sitemap.xml, robots.txt) ─────────────
+
+step("Upload fichiers SEO (sitemap.xml, robots.txt)");
+
+const staticDir = path.resolve(ROOT, "artifacts/flyhost/public");
+const staticFiles = [
+  { src: path.join(staticDir, "sitemap.xml"), name: "sitemap.xml" },
+  { src: path.join(staticDir, "robots.txt"),  name: "robots.txt"  },
+];
+
+for (const { src, name } of staticFiles) {
+  try {
+    await uploadFile(src, name, "/public");
+    ok(`${name} uploadé`);
+  } catch (e) {
+    err(`${name} : ${e.message}`);
   }
-  if (attempt < 3) {
-    log(`Erreur ${decompressRes.status} — nouvelle tentative dans 5s...`);
-    await new Promise(r => setTimeout(r, 5000));
-  } else {
-    err(`Échec décompression : ${decompressRes.status}`);
-    process.exit(1);
-  }
+  await new Promise(r => setTimeout(r, 200));
 }
 
-log("Attente 5s...");
-await new Promise(r => setTimeout(r, 5000));
+// ─── Step 4: Vérification ─────────────────────────────────────────────────────
 
-// Supprimer le zip temporaire du container (à la racine /)
-await proxyFetch("/files/delete", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ root: "/", files: ["frontend-deploy.zip"] }),
-}).catch(() => {});
-
-// ─── Step 5: Vérification ─────────────────────────────────────────────────────
-
-step("Vérification (attente 5s)");
-await new Promise(r => setTimeout(r, 5000));
+step("Vérification");
+await new Promise(r => setTimeout(r, 3000));
 
 const checkRes = await fetch("https://flihost.site/", { signal: AbortSignal.timeout(10000) }).catch(() => null);
 if (checkRes?.ok) {
-  ok("Frontend accessible : https://flihost.site/");
+  const html = await checkRes.text().catch(() => "");
+  const firstChars = html.slice(0, 30);
+  if (firstChars.startsWith("<!DOCTYPE") || firstChars.startsWith("<html")) {
+    ok("Frontend accessible et HTML valide : https://flihost.site/");
+  } else if (firstChars.includes('"content"')) {
+    err("⚠️ Le fichier index.html semble encore corrompu — relancer le déploiement");
+    process.exit(1);
+  } else {
+    ok("Frontend accessible : https://flihost.site/");
+  }
 } else {
   log("⚠️  Impossible de vérifier le frontend — vérifiez manuellement https://flihost.site/");
 }

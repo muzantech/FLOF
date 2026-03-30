@@ -64,6 +64,31 @@ const HOST_GATEWAY = process.env.HOST_IP || process.env.SERVER_IP || "173.212.22
 const STATIC_DIR = path.join(__dirname, "public");
 const routeTable = new Map();
 
+// ─────────────────── Auto-repair fichiers corrompus ───────────────────────────
+// Wings file-write API peut stocker le payload JSON brut au lieu du contenu pur.
+// On détecte {"content":"..."} et on écrit le vrai contenu au démarrage.
+(function repairCorruptedFiles() {
+  if (!fs.existsSync(STATIC_DIR)) return;
+  try {
+    for (const file of fs.readdirSync(STATIC_DIR)) {
+      const filePath = path.join(STATIC_DIR, file);
+      if (!fs.statSync(filePath).isFile()) continue;
+      const raw = fs.readFileSync(filePath, "utf8");
+      if (raw.startsWith('{"content":')) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (typeof parsed.content === "string") {
+            fs.writeFileSync(filePath, parsed.content, "utf8");
+            console.log(`[proxy] Réparé: ${file} (JSON-wrapper supprimé, ${parsed.content.length} chars)`);
+          }
+        } catch (_) {}
+      }
+    }
+  } catch (err) {
+    console.error("[proxy] Erreur réparation:", err.message);
+  }
+})();
+
 // ─────────────────── MIME types ──────────────────────────────────────────────
 const MIME = {
   ".html": "text/html; charset=utf-8",
