@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { AppLayout } from "@/components/layout";
+import { CampaignsTab } from "@/components/campaigns-tab";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,7 @@ import {
   Crown,
   MinusCircle,
   PlusCircle,
+  Mail,
 } from "lucide-react";
 
 const RESELLER_PLANS = [
@@ -244,6 +246,7 @@ export default function AdminPage() {
     { id: "overview", label: "Vue d'ensemble", icon: BarChart3 },
     { id: "users", label: "Utilisateurs", icon: Users, adminOnly: true },
     { id: "pterodactyl", label: "Pterodactyl", icon: Server, adminOnly: true },
+    { id: "campaigns", label: "Campagnes", icon: Mail, adminOnly: true },
     { id: "reseller", label: "Revendeur", icon: ShoppingBag },
     { id: "stats", label: "Statistiques", icon: Activity },
   ];
@@ -769,6 +772,9 @@ export default function AdminPage() {
             </div>
           </div>
         )}
+
+        {/* ── Campaigns Tab (admin only) ── */}
+        {activeTab === "campaigns" && isAdmin && <CampaignsTab />}
 
         {/* ── Stats Tab ── */}
         {activeTab === "stats" && (

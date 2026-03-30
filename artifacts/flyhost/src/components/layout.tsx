@@ -27,6 +27,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Zap,
+  Code2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,6 +43,7 @@ const mainNavItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/projects", label: "Projets", icon: FolderGit2 },
   { href: "/teams", label: "Équipes", icon: Users },
+  { href: "/editor", label: "Éditeur HTML", icon: Code2 },
   { href: "/deploy", label: "Déployer", icon: Rocket },
   { href: "/servers", label: "Serveurs", icon: Server },
 ];

@@ -80,8 +80,21 @@ export default function ProjectsPage() {
   return (
     <AppLayout>
       <div className="max-w-6xl mx-auto space-y-8">
+        {/* Explanation banner */}
+        <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 flex flex-col sm:flex-row sm:items-start gap-3">
+          <div className="text-2xl shrink-0">💡</div>
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-white">Comment fonctionnent les projets ?</p>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              Un <strong className="text-zinc-200">projet</strong> représente une application web (Next.js, React, PHP, etc.).
+              Créez d'abord le projet ici, puis déployez-le depuis sa page de détail — cela lui allouera un conteneur Pterodactyl avec sa propre URL.
+              Vous pouvez ensuite lier vos projets à des <strong className="text-zinc-200">équipes</strong> pour collaborer.
+            </p>
+          </div>
+        </div>
+
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <h1 className="text-3xl font-display font-bold">Projects</h1>
+          <h1 className="text-3xl font-display font-bold">Projets</h1>
 
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>

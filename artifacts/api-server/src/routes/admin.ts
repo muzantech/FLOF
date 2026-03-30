@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
+import { sendEmail, emailTemplates } from "../mailer";
 
 const router = Router();
 
@@ -121,6 +122,95 @@ router.patch("/admin/users/:id/role", requireAuth, async (req: AuthRequest, res)
   try {
     await db.update(usersTable).set({ role }).where(eq(usersTable.id, userId));
     res.json({ success: true, role });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/admin/campaigns/send — envoyer une campagne email
+router.post("/admin/campaigns/send", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  if (!(await requireAdmin(req, res))) return;
+
+  const { template, target, email: targetEmail, title, body, ctaLabel, ctaUrl, subject } = req.body as {
+    template: "promo" | "announcement" | "ad" | "custom";
+    target: "all" | "email";
+    email?: string;
+    title?: string;
+    body?: string;
+    ctaLabel?: string;
+    ctaUrl?: string;
+    subject?: string;
+  };
+
+  if (!template || !target) {
+    res.status(400).json({ error: "template et target sont requis" });
+    return;
+  }
+
+  if (target === "email" && !targetEmail) {
+    res.status(400).json({ error: "email requis pour target=email" });
+    return;
+  }
+
+  try {
+    let recipients: { name: string; email: string }[] = [];
+
+    if (target === "all") {
+      const users = await db.select({ name: usersTable.name, email: usersTable.email })
+        .from(usersTable)
+        .where(eq(usersTable.emailVerified, true));
+      recipients = users;
+    } else {
+      const [user] = await db.select({ name: usersTable.name, email: usersTable.email })
+        .from(usersTable)
+        .where(eq(usersTable.email, targetEmail!))
+        .limit(1);
+      if (!user) {
+        res.status(404).json({ error: "Utilisateur introuvable avec cet email" });
+        return;
+      }
+      recipients = [user];
+    }
+
+    let sent = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    for (const recipient of recipients) {
+      try {
+        let tpl: { subject: string; html: string };
+
+        if (template === "promo") {
+          tpl = emailTemplates.campaignPromo(
+            recipient.name,
+            title || "Offre spéciale",
+            body || "",
+            ctaLabel || "Découvrir",
+            ctaUrl || "https://flihost.site"
+          );
+        } else if (template === "announcement") {
+          tpl = emailTemplates.campaignAnnouncement(recipient.name, title || "Annonce", body || "");
+        } else if (template === "ad") {
+          tpl = emailTemplates.campaignAd(
+            recipient.name,
+            title || "Offre exclusive",
+            body || "",
+            ctaLabel || "En savoir plus",
+            ctaUrl || "https://flihost.site"
+          );
+        } else {
+          tpl = emailTemplates.campaignCustom(recipient.name, subject || "Message de FlyHost", body || "");
+        }
+
+        await sendEmail(recipient.email, tpl.subject, tpl.html);
+        sent++;
+      } catch {
+        failed++;
+        errors.push(recipient.email);
+      }
+    }
+
+    res.json({ success: true, sent, failed, total: recipients.length, errors });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
