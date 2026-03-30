@@ -5,6 +5,7 @@ import { logger } from "./lib/logger";
 import { pteroClientRequest } from "./pterodactyl";
 import jwt from "jsonwebtoken";
 import { startCronJobs } from "./cron";
+import { startBackupCron } from "./backup";
 import { ensureWildcardDNS } from "./cloudflare";
 import { subdomainProxyMiddleware, handleSubdomainProxy } from "./subdomain-proxy";
 import { syncAllSubdomains } from "./routes/servers";
@@ -157,6 +158,7 @@ server.listen(port, async (err?: Error) => {
   // Boot tasks (non-blocking)
   ensureWildcardDNS().catch(e => logger.warn({ e }, "ensureWildcardDNS failed"));
   startCronJobs();
+  startBackupCron();
   // Populate subdomain → port mapping from all existing Pterodactyl servers
   syncAllSubdomains().catch(e => logger.warn({ e }, "syncAllSubdomains failed"));
 });

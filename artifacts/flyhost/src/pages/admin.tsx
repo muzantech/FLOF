@@ -78,6 +78,9 @@ export default function AdminPage() {
   const [usersLoading, setUsersLoading] = useState(false);
   const [userSearch, setUserSearch] = useState("");
   const [coinsModal, setCoinsModal] = useState<{ userId: number; name: string; coins: number } | null>(null);
+
+  // Admin stats
+  const [adminStats, setAdminStats] = useState<{ totalUsers: number; newUsersToday: number; deploymentsToday: number; revenueMonth: number } | null>(null);
   const [coinsAmount, setCoinsAmount] = useState("");
 
   const coins = (user as any)?.coins ?? 0;
@@ -103,7 +106,18 @@ export default function AdminPage() {
   useEffect(() => {
     if (activeTab === "pterodactyl") loadPteroData();
     if (activeTab === "users") loadUsers();
+    if (activeTab === "overview") loadAdminStats();
   }, [activeTab]);
+
+  useEffect(() => { loadAdminStats(); }, []);
+
+  async function loadAdminStats() {
+    try {
+      const token = localStorage.getItem("flyhost_token");
+      const res = await fetch("/api/admin/stats", { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) setAdminStats(await res.json());
+    } catch {}
+  }
 
   async function loadUsers() {
     setUsersLoading(true);
@@ -299,19 +313,38 @@ export default function AdminPage() {
             {/* Stats grid */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               {[
-                { label: "Mes coins", value: coins, unit: "", icon: Coins, color: "text-yellow-400" },
-                { label: "Serveurs actifs", value: pteroServers.filter(s => !s.suspended).length, unit: "", icon: Server, color: "text-emerald-400" },
-                { label: "Clients", value: "0", unit: "", icon: Users, color: "text-blue-400" },
-                { label: "Revenus", value: "0", unit: "coins", icon: BarChart3, color: "text-purple-400" },
+                {
+                  label: "Total clients",
+                  value: adminStats?.totalUsers ?? "—",
+                  sub: adminStats ? `+${adminStats.newUsersToday} aujourd'hui` : "",
+                  icon: Users, color: "text-blue-400"
+                },
+                {
+                  label: "Serveurs actifs",
+                  value: pteroServers.filter(s => !s.suspended).length || "—",
+                  sub: `${pteroServers.length} au total`,
+                  icon: Server, color: "text-emerald-400"
+                },
+                {
+                  label: "Déploiements",
+                  value: adminStats?.deploymentsToday ?? "—",
+                  sub: "aujourd'hui",
+                  icon: Zap, color: "text-yellow-400"
+                },
+                {
+                  label: "Revenus du mois",
+                  value: adminStats ? `${(adminStats.revenueMonth / 1000).toFixed(0)}k` : "—",
+                  sub: "FCFA",
+                  icon: BarChart3, color: "text-purple-400"
+                },
               ].map(stat => (
                 <div key={stat.label} className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
                   <div className="flex items-center justify-between mb-3">
                     <p className="text-xs text-zinc-600 font-medium uppercase tracking-wide">{stat.label}</p>
                     <stat.icon className={`w-4 h-4 ${stat.color}`} />
                   </div>
-                  <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}
-                    {stat.unit && <span className="text-sm font-normal text-zinc-600 ml-1">{stat.unit}</span>}
-                  </p>
+                  <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
+                  {stat.sub && <p className="text-xs text-zinc-600 mt-1">{stat.sub}</p>}
                 </div>
               ))}
             </div>

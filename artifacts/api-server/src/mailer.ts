@@ -367,4 +367,45 @@ export const emailTemplates = {
       </body></html>
     `,
   }),
+  deploymentSuccess: (name: string, projectName: string, deployUrl: string, duration: number) => ({
+    subject: `✅ Déploiement réussi — ${projectName}`,
+    html: `
+      <div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#09090B;color:#FAFAFA;padding:32px;border-radius:16px">
+        <div style="font-size:28px;font-weight:800;margin-bottom:24px;color:#FACC15">FlyHost</div>
+        <div style="background:#052e16;border:1px solid #15803d;border-radius:12px;padding:20px;margin-bottom:24px;text-align:center">
+          <div style="font-size:32px;margin-bottom:8px">✅</div>
+          <div style="font-size:18px;font-weight:700;color:#4ade80">Déploiement réussi !</div>
+          <div style="color:#86efac;font-size:13px;margin-top:4px">en ${duration}s</div>
+        </div>
+        <p style="color:#A1A1AA">Bonjour <strong style="color:#FAFAFA">${name}</strong>,</p>
+        <p style="color:#A1A1AA">Votre projet <strong style="color:#FAFAFA">${projectName}</strong> est maintenant en ligne.</p>
+        <a href="${deployUrl}" style="display:inline-block;padding:12px 24px;background:#FACC15;color:#09090B;text-decoration:none;border-radius:8px;font-weight:700;margin:16px 0;font-size:14px">
+          Voir le projet →
+        </a>
+        <p style="color:#52525B;font-size:12px;margin-top:24px">FlyHost · <a href="https://flihost.site" style="color:#71717A">flihost.site</a></p>
+      </div>
+    `,
+  }),
+
+  deploymentFailed: (name: string, projectName: string, errorMsg: string) => ({
+    subject: `❌ Déploiement échoué — ${projectName}`,
+    html: `
+      <div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#09090B;color:#FAFAFA;padding:32px;border-radius:16px">
+        <div style="font-size:28px;font-weight:800;margin-bottom:24px;color:#FACC15">FlyHost</div>
+        <div style="background:#1c0a0a;border:1px solid #7f1d1d;border-radius:12px;padding:20px;margin-bottom:24px;text-align:center">
+          <div style="font-size:32px;margin-bottom:8px">❌</div>
+          <div style="font-size:18px;font-weight:700;color:#f87171">Déploiement échoué</div>
+        </div>
+        <p style="color:#A1A1AA">Bonjour <strong style="color:#FAFAFA">${name}</strong>,</p>
+        <p style="color:#A1A1AA">Le déploiement de <strong style="color:#FAFAFA">${projectName}</strong> a échoué.</p>
+        <div style="background:#18181B;border:1px solid #3F3F46;border-radius:8px;padding:12px;margin:16px 0;font-family:monospace;font-size:13px;color:#f87171;word-break:break-all">
+          ${errorMsg || "Erreur inconnue"}
+        </div>
+        <a href="${process.env.APP_URL || "https://flihost.site"}/dashboard" style="display:inline-block;padding:12px 24px;background:#FACC15;color:#09090B;text-decoration:none;border-radius:8px;font-weight:700;margin:8px 0;font-size:14px">
+          Voir les logs →
+        </a>
+        <p style="color:#52525B;font-size:12px;margin-top:24px">FlyHost · <a href="https://flihost.site" style="color:#71717A">flihost.site</a></p>
+      </div>
+    `,
+  }),
 };

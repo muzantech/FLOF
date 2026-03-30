@@ -24,9 +24,23 @@ const registerSchema = z.object({
     .min(3, "Minimum 3 caractères")
     .regex(/^[a-z0-9-]+$/, "Minuscules, chiffres et tirets uniquement"),
   email: z.string().email("Adresse e-mail invalide"),
-  password: z.string().min(6, "Minimum 6 caractères"),
+  password: z.string().min(8, "Minimum 8 caractères"),
   referralCode: z.string().optional(),
 });
+
+function getPasswordStrength(password: string): { score: number; label: string; color: string } {
+  if (!password) return { score: 0, label: "", color: "" };
+  let score = 0;
+  if (password.length >= 8) score++;
+  if (password.length >= 12) score++;
+  if (/[A-Z]/.test(password)) score++;
+  if (/[0-9]/.test(password)) score++;
+  if (/[^A-Za-z0-9]/.test(password)) score++;
+  if (score <= 1) return { score, label: "Faible", color: "bg-red-500" };
+  if (score === 2) return { score, label: "Moyen", color: "bg-orange-500" };
+  if (score === 3) return { score, label: "Bien", color: "bg-yellow-400" };
+  return { score, label: "Fort", color: "bg-emerald-500" };
+}
 
 type RegisterFormValues = z.infer<typeof registerSchema>;
 
@@ -35,6 +49,7 @@ export default function RegisterPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [passwordValue, setPasswordValue] = useState("");
 
   // Read referral code from URL
   const urlParams = new URLSearchParams(window.location.search);
@@ -151,21 +166,48 @@ export default function RegisterPage() {
               <FormField
                 control={form.control}
                 name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-zinc-300">Mot de passe</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="password"
-                        placeholder="••••••••"
-                        autoComplete="new-password"
-                        {...field}
-                        className="bg-zinc-800/50 border-zinc-700 h-11 focus:border-yellow-400/50 transition-colors"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
+                render={({ field }) => {
+                  const strength = getPasswordStrength(passwordValue);
+                  return (
+                    <FormItem>
+                      <FormLabel className="text-zinc-300">Mot de passe</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="password"
+                          placeholder="••••••••"
+                          autoComplete="new-password"
+                          {...field}
+                          onChange={e => { field.onChange(e); setPasswordValue(e.target.value); }}
+                          className="bg-zinc-800/50 border-zinc-700 h-11 focus:border-yellow-400/50 transition-colors"
+                        />
+                      </FormControl>
+                      {passwordValue && (
+                        <div className="space-y-1.5 pt-1">
+                          <div className="flex gap-1">
+                            {[1, 2, 3, 4].map(i => (
+                              <div
+                                key={i}
+                                className={`h-1 flex-1 rounded-full transition-all duration-300 ${
+                                  strength.score >= i ? strength.color : "bg-zinc-700"
+                                }`}
+                              />
+                            ))}
+                          </div>
+                          {strength.label && (
+                            <p className={`text-xs font-medium ${
+                              strength.score <= 1 ? "text-red-400" :
+                              strength.score === 2 ? "text-orange-400" :
+                              strength.score === 3 ? "text-yellow-400" : "text-emerald-400"
+                            }`}>
+                              {strength.label}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }}
               />
               <FormField
                 control={form.control}

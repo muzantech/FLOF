@@ -163,6 +163,33 @@ router.patch("/auth/me", requireAuth, async (req: AuthRequest, res): Promise<voi
   res.json(publicUser(user));
 });
 
+// POST /api/auth/resend-verification-public — renvoi de code SANS auth (pour login bloqué)
+router.post("/auth/resend-verification-public", async (req, res): Promise<void> => {
+  try {
+    const { email } = req.body;
+    if (!email) { res.status(400).json({ error: "Email requis" }); return; }
+
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email.toLowerCase().trim())).limit(1);
+
+    // Toujours répondre OK (pas de user enumeration)
+    if (!user || user.emailVerified) {
+      res.json({ success: true });
+      return;
+    }
+
+    const verificationCode = generateCode();
+    const verificationExpires = new Date(Date.now() + 15 * 60 * 1000);
+    await db.update(usersTable).set({ verificationCode, verificationExpires }).where(eq(usersTable.id, user.id));
+
+    const tpl = emailTemplates.verificationEmail(user.name, verificationCode);
+    sendEmail(user.email, tpl.subject, tpl.html).catch(() => {});
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: "Erreur interne du serveur" });
+  }
+});
+
 // POST /api/auth/send-verification — (re)envoie le code de vérification email
 router.post("/auth/send-verification", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   try {

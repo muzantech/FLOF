@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Triangle, Loader2, Coins } from "lucide-react";
+import { Triangle, Loader2, Coins, RefreshCw, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -29,6 +29,9 @@ export default function LoginPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
+  const [isResending, setIsResending] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -37,6 +40,7 @@ export default function LoginPage() {
 
   const onSubmit = async (data: LoginFormValues) => {
     setIsSubmitting(true);
+    setUnverifiedEmail(null);
     try {
       const result = await login(data);
       if (result?.dailyCoins && result.dailyCoins > 0) {
@@ -50,13 +54,39 @@ export default function LoginPage() {
       }
       setLocation("/dashboard");
     } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Connexion échouée",
-        description: error.message || "Identifiants invalides",
-      });
+      const msg: string = error.message || "";
+      if (msg.includes("vérifier votre adresse email")) {
+        setUnverifiedEmail(data.email);
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Connexion échouée",
+          description: msg || "Identifiants invalides",
+        });
+      }
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!unverifiedEmail || resendCooldown > 0) return;
+    setIsResending(true);
+    try {
+      await fetch("/api/auth/resend-verification-public", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: unverifiedEmail }),
+      });
+      toast({ title: "Email envoyé !", description: "Vérifiez votre boîte mail (et le dossier spam)." });
+      setResendCooldown(60);
+      const interval = setInterval(() => {
+        setResendCooldown(c => { if (c <= 1) { clearInterval(interval); return 0; } return c - 1; });
+      }, 1000);
+    } catch {
+      toast({ variant: "destructive", title: "Erreur", description: "Impossible d'envoyer l'email." });
+    } finally {
+      setIsResending(false);
     }
   };
 
@@ -89,6 +119,28 @@ export default function LoginPage() {
             <Coins className="w-3.5 h-3.5 flex-shrink-0" />
             <span>Gagnez <strong>5 coins</strong> en vous connectant chaque jour !</span>
           </div>
+
+          {unverifiedEmail && (
+            <div className="mb-5 rounded-xl border border-yellow-400/30 bg-yellow-400/5 p-4">
+              <div className="flex items-start gap-3">
+                <Mail className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm text-yellow-300 font-medium">Email non vérifié</p>
+                  <p className="text-xs text-zinc-400 mt-1">
+                    Vérifiez votre boîte mail et cliquez sur le lien de confirmation, ou renvoyez le code.
+                  </p>
+                  <button
+                    onClick={handleResendVerification}
+                    disabled={isResending || resendCooldown > 0}
+                    className="mt-2.5 flex items-center gap-1.5 text-xs text-yellow-400 hover:text-yellow-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isResending ? "animate-spin" : ""}`} />
+                    {resendCooldown > 0 ? `Renvoyer dans ${resendCooldown}s` : "Renvoyer l'email de vérification"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">

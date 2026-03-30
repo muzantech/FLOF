@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { usersTable } from "@workspace/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { usersTable, deploymentsTable, paymentTransactionsTable } from "@workspace/db/schema";
+import { eq, desc, gte, count, sum, sql } from "drizzle-orm";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
 import { sendEmail, emailTemplates } from "../mailer";
 
@@ -211,6 +211,37 @@ router.post("/admin/campaigns/send", requireAuth, async (req: AuthRequest, res):
     }
 
     res.json({ success: true, sent, failed, total: recipients.length, errors });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/admin/stats — statistiques globales de la plateforme
+router.get("/admin/stats", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    const [[totalUsers], [newUsersToday], [deploymentsToday], [revenueMonth]] = await Promise.all([
+      db.select({ count: count() }).from(usersTable),
+      db.select({ count: count() }).from(usersTable).where(gte(usersTable.createdAt, today)),
+      db.select({ count: count() }).from(deploymentsTable).where(gte(deploymentsTable.createdAt, today)),
+      db.select({ total: sum(paymentTransactionsTable.amount) })
+        .from(paymentTransactionsTable)
+        .where(
+          sql`${paymentTransactionsTable.status} = 'completed' AND ${paymentTransactionsTable.createdAt} >= ${firstOfMonth}`
+        ),
+    ]);
+
+    res.json({
+      totalUsers: totalUsers.count,
+      newUsersToday: newUsersToday.count,
+      deploymentsToday: deploymentsToday.count,
+      revenueMonth: parseInt(revenueMonth.total as any || "0"),
+    });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

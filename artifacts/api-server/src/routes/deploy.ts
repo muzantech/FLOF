@@ -5,7 +5,8 @@
  */
 import { Router, type Response } from "express";
 import { requireAuth, requireAuthFlexible, type AuthRequest } from "../middlewares/auth";
-import { db, deploymentsTable, deploymentLogsTable, serverSubdomainsTable } from "@workspace/db";
+import { db, deploymentsTable, deploymentLogsTable, serverSubdomainsTable, usersTable, projectsTable } from "@workspace/db";
+import { sendEmail, emailTemplates } from "../mailer";
 import { eq, lt, and } from "drizzle-orm";
 import multer from "multer";
 import AdmZip from "adm-zip";
@@ -810,11 +811,42 @@ async function runDeploy(
     // Broadcast completion
     broadcastLog(deploymentId, "done", "__DEPLOY_COMPLETE__");
 
+    // Send success email (non-blocking)
+    if (opts.userId) {
+      Promise.all([
+        db.select().from(usersTable).where(eq(usersTable.id, opts.userId)).limit(1),
+        db.select().from(deploymentsTable).where(eq(deploymentsTable.id, deploymentId)).limit(1),
+      ]).then(async ([[user], [dep]]) => {
+        if (!user || !dep?.projectId) return;
+        const [project] = await db.select().from(projectsTable).where(eq(projectsTable.id, dep.projectId)).limit(1);
+        const tpl = emailTemplates.deploymentSuccess(
+          user.name,
+          project?.name || identifier,
+          deployUrl || `https://flihost.site/dashboard`,
+          Math.round(duration)
+        );
+        sendEmail(user.email, tpl.subject, tpl.html).catch(() => {});
+      }).catch(() => {});
+    }
+
   } catch (err: any) {
     const msg = err?.message || "Erreur inconnue";
     await logDeploy(deploymentId, "error", `Déploiement échoué : ${msg}`);
     await db.update(deploymentsTable).set({ status: "failed", updatedAt: new Date() }).where(eq(deploymentsTable.id, deploymentId));
     broadcastLog(deploymentId, "error", "__DEPLOY_FAILED__");
+
+    // Send failure email (non-blocking)
+    if (opts.userId) {
+      Promise.all([
+        db.select().from(usersTable).where(eq(usersTable.id, opts.userId)).limit(1),
+        db.select().from(deploymentsTable).where(eq(deploymentsTable.id, deploymentId)).limit(1),
+      ]).then(async ([[user], [dep]]) => {
+        if (!user || !dep?.projectId) return;
+        const [project] = await db.select().from(projectsTable).where(eq(projectsTable.id, dep.projectId)).limit(1);
+        const tpl = emailTemplates.deploymentFailed(user.name, project?.name || identifier, msg);
+        sendEmail(user.email, tpl.subject, tpl.html).catch(() => {});
+      }).catch(() => {});
+    }
   }
 }
 
