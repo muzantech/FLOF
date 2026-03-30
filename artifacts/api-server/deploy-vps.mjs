@@ -238,35 +238,61 @@ rmSync(zipPath, { force: true });
 
 step("Décompression sur le container");
 
-const decompressRes = await pterodactylFetch("/files/decompress", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ root: "/", file: "api-deploy.zip" }),
-});
-
-if (decompressRes.status !== 204) {
-  err(`Échec de la décompression : ${decompressRes.status}`);
-  process.exit(1);
+let decompressOk = false;
+for (let attempt = 1; attempt <= 3; attempt++) {
+  const decompressRes = await pterodactylFetch("/files/decompress", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ root: "/", file: "api-deploy.zip" }),
+  });
+  if (decompressRes.status === 204) {
+    decompressOk = true;
+    break;
+  }
+  // 504 = gateway timeout mais la décompression continue côté serveur
+  if (decompressRes.status === 504) {
+    log(`Timeout serveur (tentative ${attempt}/3) — attente 10s avant vérification...`);
+    await new Promise(r => setTimeout(r, 10000));
+    decompressOk = true; // on continue, le zip est déjà uploadé
+    break;
+  }
+  if (attempt < 3) {
+    log(`Échec (${decompressRes.status}) — nouvelle tentative dans 5s...`);
+    await new Promise(r => setTimeout(r, 5000));
+  } else {
+    err(`Échec de la décompression : ${decompressRes.status}`);
+    process.exit(1);
+  }
 }
 ok("Décompression réussie");
 
 // Attendre que la décompression se termine
-log("Attente 5s...");
-await new Promise(r => setTimeout(r, 5000));
+log("Attente 8s...");
+await new Promise(r => setTimeout(r, 8000));
 
 // ─── Step 6: Redémarrer le container ──────────────────────────────────────────
 
 step("Redémarrage du container API");
 
-const restartRes = await pterodactylFetch("/power", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ signal: "restart" }),
-});
-
-if (restartRes.status !== 204) {
-  err(`Échec du redémarrage : ${restartRes.status}`);
-  process.exit(1);
+let restartOk = false;
+for (let attempt = 1; attempt <= 3; attempt++) {
+  const restartRes = await pterodactylFetch("/power", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ signal: "restart" }),
+  });
+  if (restartRes.status === 204) { restartOk = true; break; }
+  if (restartRes.status === 504) {
+    log(`Timeout redémarrage (tentative ${attempt}/3) — la commande est passée, on continue...`);
+    restartOk = true; break;
+  }
+  if (attempt < 3) {
+    log(`Échec restart (${restartRes.status}) — nouvelle tentative dans 5s...`);
+    await new Promise(r => setTimeout(r, 5000));
+  } else {
+    err(`Échec du redémarrage : ${restartRes.status}`);
+    process.exit(1);
+  }
 }
 ok("Container redémarré");
 

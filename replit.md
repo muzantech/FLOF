@@ -99,12 +99,13 @@ pnpm --filter @workspace/api-server run deploy
 
 ### Déployer le frontend en production (VPS)
 ```bash
-# Build du frontend
-PORT=3001 BASE_PATH="/" pnpm --filter @workspace/flyhost run build
+# Une seule commande — build + zip + upload + extraction dans /public/
+pnpm --filter @workspace/api-server run deploy:frontend
 
-# Deploy vers VPS (Pterodactyl container b9ce2f9c — fichiers dans /public/)
-# Header X-Requested-With: XMLHttpRequest — CRITIQUE pour Wings API writes
-node /tmp/deploy-final.mjs
+# Script : artifacts/api-server/deploy-frontend.mjs
+# Container cible : b9ce2f9c (proxy+frontend, port 3000)
+# Les fichiers vont dans /public/ du container
+# Note : la connexion Wings de ce container est instable → retries automatiques
 ```
 
 ### Autres commandes utiles
