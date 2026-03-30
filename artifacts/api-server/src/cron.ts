@@ -27,6 +27,74 @@ function log(msg: string) { console.log(`[cron] ${new Date().toISOString()} ${ms
 // Since we don't have a dedicated servers table, we track via deployments/Pterodactyl
 // For now crons operate on Pterodactyl data and coin transactions
 
+// ─── In-memory cache for server state monitoring ────────────────────────────
+const serverStateCache = new Map<string, string>(); // serverId → last known state
+
+// ─── Monitor server states and send email alerts ─────────────────────────────
+export async function monitorServerStates() {
+  log("Monitoring server states for alerts...");
+  try {
+    const pteroServers = await listPteroServers();
+    const servers = pteroServers.data || [];
+
+    for (const s of servers) {
+      const identifier = s.attributes?.identifier;
+      const serverName = s.attributes?.name || identifier;
+      if (!identifier) continue;
+
+      try {
+        const usage = await getServerResourceUsage(identifier);
+        const currentState = usage.attributes?.current_state || "offline";
+        const prevState = serverStateCache.get(identifier);
+
+        // State change detected
+        if (prevState !== undefined && prevState !== currentState) {
+          log(`Server ${identifier} state changed: ${prevState} → ${currentState}`);
+
+          const users = await db.select({ id: usersTable.id, email: usersTable.email, name: usersTable.name })
+            .from(usersTable).limit(200);
+
+          const [sub] = await db.select({ userId: serverSubdomainsTable.userId })
+            .from(serverSubdomainsTable)
+            .where(eq(serverSubdomainsTable.pterodactylIdentifier, identifier))
+            .limit(1);
+
+          const owner = sub ? users.find(u => u.id === sub.userId) : null;
+
+          if (owner) {
+            if (currentState === "offline" && prevState === "running") {
+              // Server went down
+              const { serverDown } = emailTemplates;
+              if (serverDown) {
+                const tpl = serverDown(owner.name || "utilisateur", serverName);
+                await sendEmail(owner.email, tpl.subject, tpl.html).catch(() => {});
+              }
+              await createNotification(owner.id, "server_down", `Serveur hors ligne : ${serverName}`,
+                `Votre serveur "${serverName}" s'est arrêté inopinément.`,
+                { serverId: identifier }
+              );
+            } else if (currentState === "running" && prevState === "offline") {
+              // Server came back up
+              const { serverUp } = emailTemplates;
+              if (serverUp) {
+                const tpl = serverUp(owner.name || "utilisateur", serverName);
+                await sendEmail(owner.email, tpl.subject, tpl.html).catch(() => {});
+              }
+              await createNotification(owner.id, "server_up", `Serveur en ligne : ${serverName}`,
+                `Votre serveur "${serverName}" est de nouveau en ligne.`,
+                { serverId: identifier }
+              );
+            }
+          }
+        }
+        serverStateCache.set(identifier, currentState);
+      } catch {}
+    }
+  } catch (err) {
+    log(`monitorServerStates error: ${err}`);
+  }
+}
+
 // ─── Collect server metrics every 5 minutes ──────────────────────────────────
 export async function collectMetrics() {
   log("Collecting server metrics...");
@@ -258,8 +326,11 @@ export async function cleanupExpiredTrials() {
 export function startCronJobs() {
   log("Starting cron jobs...");
 
-  // Every 5 minutes: collect metrics
-  setInterval(collectMetrics, 5 * 60 * 1000);
+  // Every 5 minutes: collect metrics + monitor server states
+  setInterval(() => {
+    collectMetrics();
+    monitorServerStates();
+  }, 5 * 60 * 1000);
 
   // Every hour: fix stuck builds + cleanup tmp + clean expired trials
   setInterval(() => {

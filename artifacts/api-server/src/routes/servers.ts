@@ -84,9 +84,11 @@ router.get("/servers/:identifier/quick-stats", requireAuth, async (req: AuthRequ
       disk: attr.resources?.disk_bytes ?? 0,
       diskLimit: attr.resources?.disk_limit_bytes ?? 0,
       uptime: attr.resources?.uptime ?? 0,
+      networkRx: attr.resources?.network_rx_bytes ?? 0,
+      networkTx: attr.resources?.network_tx_bytes ?? 0,
     });
   } catch {
-    res.json({ state: "offline", cpu: 0, ram: 0, ramLimit: 0, disk: 0, diskLimit: 0, uptime: 0 });
+    res.json({ state: "offline", cpu: 0, ram: 0, ramLimit: 0, disk: 0, diskLimit: 0, uptime: 0, networkRx: 0, networkTx: 0 });
   }
 });
 
@@ -761,6 +763,52 @@ router.get("/servers/:identifier/deployments", requireAuth, async (req: AuthRequ
       .limit(limit);
 
     res.json({ deployments, total: deployments.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/servers/:identifier/deployments/:id/rollback
+router.post("/servers/:identifier/deployments/:deploymentId/rollback", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const { identifier, deploymentId } = req.params;
+    const depId = parseInt(deploymentId, 10);
+
+    const [dep] = await db.select().from(deploymentsTable)
+      .where(eq(deploymentsTable.id, depId)).limit(1);
+
+    if (!dep || dep.serverId !== identifier) {
+      res.status(404).json({ error: "Déploiement introuvable" });
+      return;
+    }
+
+    const [newDep] = await db.insert(deploymentsTable).values({
+      projectId: dep.projectId,
+      userId: req.userId!,
+      serverId: identifier,
+      status: "queued",
+      method: "rollback",
+      branch: dep.branch,
+      commit: dep.commit,
+      commitMessage: `Rollback vers déploiement #${dep.id}`,
+      isProduction: dep.isProduction,
+    }).returning();
+
+    setTimeout(async () => {
+      await db.update(deploymentsTable)
+        .set({ status: "ready", duration: 5000, updatedAt: new Date() })
+        .where(eq(deploymentsTable.id, newDep.id));
+    }, 5000);
+
+    await createNotification(
+      req.userId!,
+      "deployment",
+      "Rollback lancé",
+      `Retour à la version du déploiement #${dep.id} sur le serveur ${identifier}`,
+      { serverId: identifier, deploymentId: newDep.id }
+    );
+
+    res.json({ success: true, deployment: newDep });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

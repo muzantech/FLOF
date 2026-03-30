@@ -147,6 +147,41 @@ export const emailTemplates = {
     `,
   }),
 
+  serverDown: (name: string, serverName: string) => ({
+    subject: `🔴 Serveur hors ligne — ${serverName}`,
+    html: `
+      <div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#09090B;color:#FAFAFA;padding:32px;border-radius:16px">
+        <div style="font-size:28px;font-weight:800;margin-bottom:8px;color:#FACC15">FlyHost</div>
+        <h2 style="color:#ef4444">🔴 Serveur hors ligne</h2>
+        <p>Bonjour <strong>${name}</strong>,</p>
+        <p>Votre serveur <strong>${serverName}</strong> vient de s'arrêter inopinément.</p>
+        <p>Connectez-vous pour diagnostiquer le problème et redémarrer votre serveur.</p>
+        <a href="${process.env.APP_URL || "https://flihost.site"}/servers"
+           style="display:inline-block;padding:12px 24px;background:#FACC15;color:#09090B;text-decoration:none;border-radius:8px;font-weight:700;margin-top:16px">
+          Voir mes serveurs →
+        </a>
+        <p style="color:#52525B;font-size:12px;margin-top:24px">FlyHost · flihost.site</p>
+      </div>
+    `,
+  }),
+
+  serverUp: (name: string, serverName: string) => ({
+    subject: `🟢 Serveur en ligne — ${serverName}`,
+    html: `
+      <div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#09090B;color:#FAFAFA;padding:32px;border-radius:16px">
+        <div style="font-size:28px;font-weight:800;margin-bottom:8px;color:#FACC15">FlyHost</div>
+        <h2 style="color:#10b981">🟢 Serveur de nouveau en ligne</h2>
+        <p>Bonjour <strong>${name}</strong>,</p>
+        <p>Votre serveur <strong>${serverName}</strong> est de nouveau opérationnel.</p>
+        <a href="${process.env.APP_URL || "https://flihost.site"}/servers"
+           style="display:inline-block;padding:12px 24px;background:#FACC15;color:#09090B;text-decoration:none;border-radius:8px;font-weight:700;margin-top:16px">
+          Accéder à mon serveur →
+        </a>
+        <p style="color:#52525B;font-size:12px;margin-top:24px">FlyHost · flihost.site</p>
+      </div>
+    `,
+  }),
+
   cpuAlert: (serverName: string, cpu: number) => ({
     subject: `🔥 Alerte CPU — ${serverName} à ${cpu.toFixed(1)}%`,
     html: `

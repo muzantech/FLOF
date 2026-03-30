@@ -34,6 +34,7 @@ import ServersPage from "@/pages/servers";
 import ServerDetailPage from "@/pages/server-detail";
 import EditorPage from "@/pages/editor";
 import PaymentCallbackPage from "@/pages/payment-callback";
+import TemplatesPage from "@/pages/templates";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -113,6 +114,7 @@ function Router() {
       <Route path="/servers"><ProtectedRoute component={ServersPage} /></Route>
       <Route path="/servers/:identifier"><ProtectedRoute component={ServerDetailPage} /></Route>
       <Route path="/editor"><ProtectedRoute component={EditorPage} /></Route>
+      <Route path="/templates"><ProtectedRoute component={TemplatesPage} /></Route>
       
       {/* Auth utility routes */}
       <Route path="/verify-email"><LoginOnlyRoute component={VerifyEmailPage} /></Route>

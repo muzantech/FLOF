@@ -189,6 +189,246 @@ function PowerButtons({ onAction, isRunning, loading }: {
   );
 }
 
+// ── Sparkline helper ──────────────────────
+function Sparkline({ data, color, height = 40 }: { data: number[]; color: string; height?: number }) {
+  if (data.length < 2) return <div style={{ height }} />;
+  const max = Math.max(...data, 1);
+  const w = 200;
+  const h = height;
+  const pts = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * w;
+    const y = h - (v / max) * h;
+    return `${x},${y}`;
+  });
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: "100%", height }}>
+      <polyline points={pts.join(" ")} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <polygon points={`0,${h} ${pts.join(" ")} ${w},${h}`} fill={color} opacity="0.08" />
+    </svg>
+  );
+}
+
+// ── Monitoring panel ───────────────────────
+function MonitoringPanel({ identifier, server }: { identifier: string; server: any }) {
+  const MAX_POINTS = 60;
+  const [cpuH, setCpuH] = useState<number[]>([]);
+  const [ramH, setRamH] = useState<number[]>([]);
+  const [diskH, setDiskH] = useState<number[]>([]);
+  const [latest, setLatest] = useState<any>(null);
+  const [historical, setHistorical] = useState<any[]>([]);
+  const [histLoading, setHistLoading] = useState(true);
+
+  useEffect(() => {
+    // Load historical from DB (last 24h)
+    fetch(`/api/servers/${identifier}/metrics`)
+      .then(r => r.json())
+      .then(d => {
+        const m = (d.metrics || []).reverse();
+        setHistorical(m);
+        setHistLoading(false);
+      })
+      .catch(() => setHistLoading(false));
+  }, [identifier]);
+
+  useEffect(() => {
+    let mounted = true;
+    async function poll() {
+      try {
+        const r = await fetch(`/api/servers/${identifier}/quick-stats`);
+        if (!r.ok) return;
+        const d = await r.json();
+        if (!mounted) return;
+        setLatest(d);
+        const cpu = Math.min(100, d.cpu ?? 0);
+        const ram = d.ramLimit > 0 ? Math.min(100, (d.ram / d.ramLimit) * 100) : 0;
+        const disk = d.diskLimit > 0 ? Math.min(100, (d.disk / d.diskLimit) * 100) : 0;
+        setCpuH(prev => [...prev.slice(-(MAX_POINTS - 1)), cpu]);
+        setRamH(prev => [...prev.slice(-(MAX_POINTS - 1)), ram]);
+        setDiskH(prev => [...prev.slice(-(MAX_POINTS - 1)), disk]);
+      } catch {}
+    }
+    poll();
+    const iv = setInterval(poll, 5000);
+    return () => { mounted = false; clearInterval(iv); };
+  }, [identifier]);
+
+  const fmtBytes = (b: number) => b > 1024 * 1024 * 1024 ? `${(b / 1024 / 1024 / 1024).toFixed(2)} GB` : b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(0)} MB` : `${(b / 1024).toFixed(0)} KB`;
+  const fmtUptime = (ms: number) => {
+    const s = Math.floor(ms / 1000);
+    const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const sec = s % 60;
+    return `${h > 0 ? h + "h " : ""}${m > 0 ? m + "m " : ""}${sec}s`;
+  };
+
+  const cards = [
+    { label: "CPU", value: latest ? `${Math.min(100, latest.cpu ?? 0).toFixed(1)}%` : "—", sub: server?.limits?.cpu ? `Limite: ${server.limits.cpu}%` : "", history: cpuH, color: "#60a5fa" },
+    { label: "RAM", value: latest?.ramLimit > 0 ? `${((latest.ram / latest.ramLimit) * 100).toFixed(1)}%` : "—", sub: latest ? `${fmtBytes(latest.ram)} / ${fmtBytes(latest.ramLimit)}` : "", history: ramH, color: "#c084fc" },
+    { label: "Disque", value: latest?.diskLimit > 0 ? `${((latest.disk / latest.diskLimit) * 100).toFixed(1)}%` : "—", sub: latest ? `${fmtBytes(latest.disk)} / ${fmtBytes(latest.diskLimit)}` : "", history: diskH, color: "#fb923c" },
+  ];
+
+  return (
+    <div className="h-full overflow-y-auto space-y-4 pb-4">
+      {/* Live cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {cards.map(c => (
+          <div key={c.label} className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
+            <div className="flex justify-between items-start mb-2">
+              <div>
+                <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wider">{c.label}</p>
+                <p className="text-2xl font-bold text-white mt-1">{c.value}</p>
+                <p className="text-xs text-zinc-600 mt-0.5">{c.sub}</p>
+              </div>
+              <div className={`w-2 h-2 rounded-full mt-1 ${latest?.state === "running" ? "bg-emerald-400" : "bg-zinc-600"}`} />
+            </div>
+            <Sparkline data={c.history} color={c.color} height={36} />
+          </div>
+        ))}
+      </div>
+
+      {/* Uptime + state */}
+      {latest && (
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 flex flex-wrap gap-6 text-sm">
+          <div><p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">État</p><p className="font-semibold text-white capitalize">{latest.state}</p></div>
+          {latest.uptime > 0 && <div><p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Uptime</p><p className="font-semibold text-emerald-400">{fmtUptime(latest.uptime)}</p></div>}
+          <div><p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Réseau ↓</p><p className="font-semibold text-white">{fmtBytes(latest.networkRx ?? 0)}</p></div>
+          <div><p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Réseau ↑</p><p className="font-semibold text-white">{fmtBytes(latest.networkTx ?? 0)}</p></div>
+          <div><p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Rafraîchi</p><p className="font-semibold text-zinc-400">toutes les 5s</p></div>
+        </div>
+      )}
+
+      {/* Historical table */}
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
+        <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+          <Activity className="w-4 h-4 text-yellow-400" /> Historique des métriques (24h)
+        </h3>
+        {histLoading ? (
+          <div className="flex items-center gap-2 text-zinc-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement…</div>
+        ) : historical.length === 0 ? (
+          <p className="text-zinc-600 text-sm">Aucune donnée historique — les métriques sont collectées toutes les 5 minutes.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead>
+                <tr className="border-b border-zinc-800">
+                  {["Heure", "État", "CPU %", "RAM Mo", "Disque Mo"].map(h => (
+                    <th key={h} className="pb-2 pr-4 text-zinc-500 font-semibold uppercase tracking-wider">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {historical.slice(0, 50).map((m: any, i: number) => (
+                  <tr key={i} className="border-b border-zinc-800/50 hover:bg-zinc-800/20">
+                    <td className="py-1.5 pr-4 text-zinc-400 font-mono">{new Date(m.recordedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</td>
+                    <td className="py-1.5 pr-4">
+                      <span className={`text-xs font-semibold ${m.state === "running" ? "text-emerald-400" : "text-zinc-500"}`}>{m.state}</span>
+                    </td>
+                    <td className="py-1.5 pr-4 text-blue-400 font-mono">{(m.cpuPercent ?? 0).toFixed(1)}%</td>
+                    <td className="py-1.5 pr-4 text-purple-400 font-mono">{(m.ramMb ?? 0).toFixed(0)}</td>
+                    <td className="py-1.5 pr-4 text-orange-400 font-mono">{(m.diskMb ?? 0).toFixed(0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Deployment history panel ───────────────
+function HistoryPanel({ identifier }: { identifier: string }) {
+  const [deployments, setDeployments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [rollingBack, setRollingBack] = useState<number | null>(null);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    fetch(`/api/servers/${identifier}/deployments`)
+      .then(r => r.json())
+      .then(d => { setDeployments(d.deployments || []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [identifier]);
+
+  async function rollback(deploymentId: number) {
+    setRollingBack(deploymentId);
+    try {
+      const r = await fetch(`/api/servers/${identifier}/deployments/${deploymentId}/rollback`, { method: "POST" });
+      const d = await r.json();
+      if (r.ok) {
+        toast({ title: "Rollback lancé", description: "Le serveur revient à la version précédente." });
+        setTimeout(() => {
+          fetch(`/api/servers/${identifier}/deployments`).then(r => r.json()).then(d => setDeployments(d.deployments || []));
+        }, 2000);
+      } else {
+        toast({ variant: "destructive", title: "Rollback échoué", description: d.error });
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Erreur", description: e.message });
+    }
+    setRollingBack(null);
+  }
+
+  const statusCfg: Record<string, { color: string; bg: string; label: string }> = {
+    ready: { color: "text-emerald-400", bg: "bg-emerald-400/10", label: "Réussi" },
+    building: { color: "text-yellow-400", bg: "bg-yellow-400/10", label: "En cours" },
+    queued: { color: "text-blue-400", bg: "bg-blue-400/10", label: "En attente" },
+    failed: { color: "text-red-400", bg: "bg-red-400/10", label: "Échoué" },
+    error: { color: "text-red-400", bg: "bg-red-400/10", label: "Erreur" },
+  };
+
+  return (
+    <div className="h-full overflow-y-auto space-y-3 pb-4">
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
+        <h3 className="text-sm font-semibold text-white mb-1 flex items-center gap-2">
+          <GitBranch className="w-4 h-4 text-yellow-400" /> Historique des déploiements
+        </h3>
+        <p className="text-xs text-zinc-600 mb-4">Revenir à une version précédente en un clic.</p>
+
+        {loading ? (
+          <div className="flex items-center gap-2 text-zinc-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement…</div>
+        ) : deployments.length === 0 ? (
+          <p className="text-zinc-600 text-sm">Aucun déploiement enregistré pour ce serveur.</p>
+        ) : (
+          <div className="space-y-2">
+            {deployments.map((d: any, i: number) => {
+              const cfg = statusCfg[d.status] || { color: "text-zinc-400", bg: "bg-zinc-800", label: d.status };
+              const isLatest = i === 0;
+              return (
+                <div key={d.id} className={`flex items-start gap-3 p-3 rounded-lg border ${isLatest ? "border-yellow-400/30 bg-yellow-400/5" : "border-zinc-800 bg-zinc-900/30"}`}>
+                  <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${d.status === "ready" ? "bg-emerald-400" : d.status === "building" ? "bg-yellow-400 animate-pulse" : "bg-zinc-600"}`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${cfg.bg} ${cfg.color}`}>{cfg.label}</span>
+                      {isLatest && <span className="text-xs bg-yellow-400/20 text-yellow-400 px-2 py-0.5 rounded-full font-semibold">Actuel</span>}
+                      {d.method && <span className="text-xs text-zinc-500 font-mono">{d.method}</span>}
+                      {d.branch && <span className="text-xs text-zinc-600 font-mono">#{d.branch}</span>}
+                    </div>
+                    <div className="flex items-center gap-3 mt-1 text-xs text-zinc-500 flex-wrap">
+                      <span>{new Date(d.createdAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                      {d.duration && <span>{Math.round(d.duration / 1000)}s</span>}
+                      {d.commit && <span className="font-mono">{d.commit.slice(0, 8)}</span>}
+                    </div>
+                    {d.commitMessage && <p className="text-xs text-zinc-500 mt-0.5 truncate">{d.commitMessage}</p>}
+                  </div>
+                  {!isLatest && d.status === "ready" && (
+                    <button
+                      onClick={() => rollback(d.id)}
+                      disabled={rollingBack === d.id}
+                      className="flex-shrink-0 text-xs px-3 py-1.5 rounded-lg border border-zinc-700 text-zinc-400 hover:border-yellow-400/50 hover:text-yellow-400 transition-colors disabled:opacity-50"
+                    >
+                      {rollingBack === d.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "↩ Rollback"}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Console component ─────────────────────
 function ConsolePanel({
   identifier,
@@ -1243,7 +1483,7 @@ export default function ServerDetailPage() {
   const [server, setServer] = useState<ServerInfo | null>(null);
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"console" | "files" | "deploy" | "startup" | "settings">("console");
+  const [activeTab, setActiveTab] = useState<"console" | "files" | "deploy" | "startup" | "monitoring" | "history" | "settings">("console");
   const [powerLoading, setPowerLoading] = useState(false);
   const [deletingServer, setDeletingServer] = useState(false);
   const [fixingStartup, setFixingStartup] = useState(false);
@@ -1381,6 +1621,8 @@ export default function ServerDetailPage() {
   const TABS = [
     { id: "console", label: "Console", icon: Terminal },
     { id: "files", label: "Fichiers", icon: FolderOpen },
+    { id: "monitoring", label: "Monitoring", icon: Activity },
+    { id: "history", label: "Historique", icon: RefreshCw },
     { id: "deploy", label: "Déployer", icon: GitBranch },
     { id: "startup", label: "Startup", icon: Play },
     { id: "settings", label: "Paramètres", icon: Settings },
@@ -1524,6 +1766,16 @@ export default function ServerDetailPage() {
             />
           )}
           {activeTab === "files" && <FilesPanel identifier={identifier} />}
+          {activeTab === "monitoring" && (
+            <div className="h-full overflow-y-auto">
+              <MonitoringPanel identifier={identifier} server={server} />
+            </div>
+          )}
+          {activeTab === "history" && (
+            <div className="h-full overflow-y-auto">
+              <HistoryPanel identifier={identifier} />
+            </div>
+          )}
           {activeTab === "deploy" && (
             <div className="h-full overflow-y-auto">
               <DeployPanel identifier={identifier} serverName={server?.name || ""} />
